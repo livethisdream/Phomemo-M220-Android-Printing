@@ -14,6 +14,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,21 +28,25 @@ import androidx.lifecycle.lifecycleScope
 class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
-    private val transport = SppTransport()
+    private val transport by lazy { BleTransport(this) }
 
     private var pending: LabelRenderer.Label? = null
     private var preview: ImageView? = null
     private var status: TextView? = null
 
-    /** What to run once the user answers the BLUETOOTH_CONNECT dialog. */
+    /** What to run once the user answers the permission dialog. */
     private var afterPermission: (() -> Unit)? = null
 
     private val requestBluetooth = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
         val next = afterPermission
         afterPermission = null
-        if (granted) next?.invoke() else toast("Bluetooth permission is required to reach the printer")
+        if (results.values.all { it }) {
+            next?.invoke()
+        } else {
+            toast("Bluetooth permission is required to reach the printer")
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -133,32 +138,22 @@ class MainActivity : AppCompatActivity() {
         root.addView(height)
         root.addView(density)
 
-        // Listing bonded devices needs BLUETOOTH_CONNECT on Android 12+, and
-        // this screen is reachable straight from the launcher, before the user
-        // has ever seen the permission dialog. Ask, rather than assume.
-        val hasPermission = hasConnectPermission()
-        val paired = if (hasPermission) transport.bondedPrinters() else emptyList()
-
+        // No pairing step: BLE needs no bond, so the printer is identified by
+        // the address the user picked out of a scan rather than by a bond the
+        // system holds. That is the whole reason this app stopped caring about
+        // Settings > Bluetooth.
         root.addView(
             body(
-                when {
-                    !hasPermission ->
-                        "Bluetooth permission has not been granted yet, so paired printers cannot be listed."
-                    paired.isEmpty() ->
-                        "No paired Phomemo printer detected. Pair the M220 in Settings > Bluetooth, then reopen this screen."
-                    else ->
-                        "Printer: " + paired.joinToString { it.name ?: it.address }
-                }
+                prefs.printerMac?.let { mac ->
+                    "Printer: " + (prefs.printerName ?: mac)
+                } ?: "No printer chosen yet. Tap Find printer with the M220 powered on."
             )
         )
 
-        if (!hasPermission) {
-            root.addView(Button(this).apply {
-                text = "Grant Bluetooth permission"
-                // Re-render the screen so the printer line fills in.
-                setOnClickListener { withBluetoothPermission { showSettings() } }
-            })
-        }
+        root.addView(Button(this).apply {
+            text = "Find printer"
+            setOnClickListener { withBluetoothPermission { scanForPrinters() } }
+        })
 
         root.addView(Button(this).apply {
             text = "Save"
@@ -166,10 +161,6 @@ class MainActivity : AppCompatActivity() {
                 prefs.labelWidthMm = width.value() ?: prefs.labelWidthMm
                 prefs.labelHeightMm = height.value() ?: prefs.labelHeightMm
                 prefs.density = density.value() ?: prefs.density
-                // Only overwrite a stored MAC when there is a candidate to
-                // replace it with. Otherwise visiting this screen without the
-                // permission grant would wipe a printer that was working.
-                paired.firstOrNull()?.let { prefs.printerMac = it.address }
                 toast("Saved")
                 pending?.let { showPreview(it) }
             }
@@ -178,27 +169,94 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
     }
 
+    // --- Printer discovery ----------------------------------------------------
+
+    private fun scanForPrinters() {
+        val root = column()
+        root.addView(heading("Finding printers"))
+        root.addView(body("Scanning for nearby Bluetooth devices..."))
+        setContentView(root)
+
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { transport.scan() } }
+            result.fold(
+                onSuccess = { showPicker(it) },
+                onFailure = { e ->
+                    toast(e.message ?: "Scan failed")
+                    showSettings()
+                }
+            )
+        }
+    }
+
+    /**
+     * Every device found, not just ones matching a name pattern. The advertised
+     * name often differs from what the printer shows on its own screen, so a
+     * name filter would be capable of hiding the very device being looked for.
+     */
+    private fun showPicker(devices: List<BleTransport.Found>) {
+        val root = column()
+        root.addView(heading("Choose your printer"))
+
+        if (devices.isEmpty()) {
+            root.addView(body("Nothing found. Check the M220 is powered on and in range, then try again."))
+        } else {
+            root.addView(body("Likely printers are listed first. If nothing here looks right, power-cycle the M220 and scan again."))
+            for (device in devices) {
+                root.addView(Button(this).apply {
+                    text = device.label
+                    setOnClickListener {
+                        prefs.printerMac = device.address
+                        prefs.printerName = device.name
+                        toast("Saved ${device.label}")
+                        showSettings()
+                    }
+                })
+            }
+        }
+
+        root.addView(Button(this).apply {
+            text = "Scan again"
+            setOnClickListener { scanForPrinters() }
+        })
+        root.addView(Button(this).apply {
+            text = "Back"
+            setOnClickListener { showSettings() }
+        })
+
+        // A scan in a populated room returns far more than fits on a screen.
+        setContentView(ScrollView(this).apply { addView(root) })
+    }
+
     // --- Printing -------------------------------------------------------------
 
     private fun requestPrint() = withBluetoothPermission { doPrint() }
 
     /**
-     * BLUETOOTH_CONNECT is a runtime permission from Android 12. Below that it
-     * is the install-time BLUETOOTH permission, already granted from the
-     * manifest, so there is nothing to ask for.
+     * From Android 12 this is BLUETOOTH_SCAN + BLUETOOTH_CONNECT, and
+     * neverForLocation in the manifest keeps location out of it.
+     *
+     * Below Android 12 there is no such flag: a BLE scan silently returns zero
+     * results without a location grant, whatever the app is actually doing, so
+     * ACCESS_FINE_LOCATION has to be asked for on those versions.
      */
-    private fun hasConnectPermission(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ContextCompat.checkSelfPermission(
-                this, Manifest.permission.BLUETOOTH_CONNECT
-            ) == PackageManager.PERMISSION_GRANTED
+    private fun requiredPermissions(): Array<String> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+    private fun hasBluetoothPermission(): Boolean = requiredPermissions().all {
+        ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+    }
 
     private fun withBluetoothPermission(action: () -> Unit) {
-        if (hasConnectPermission()) {
+        if (hasBluetoothPermission()) {
             action()
         } else {
             afterPermission = action
-            requestBluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
+            requestBluetooth.launch(requiredPermissions())
         }
     }
 

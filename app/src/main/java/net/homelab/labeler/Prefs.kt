@@ -11,9 +11,15 @@ class Prefs(context: Context) {
 
     private val sp = context.getSharedPreferences("labeler", Context.MODE_PRIVATE)
 
+    /** BLE address of the chosen printer. Null until the user picks one. */
     var printerMac: String?
         get() = sp.getString(KEY_MAC, null)
         set(v) = sp.edit().putString(KEY_MAC, v).apply()
+
+    /** Cosmetic, so settings can name the saved printer without rescanning. */
+    var printerName: String?
+        get() = sp.getString(KEY_NAME, null)
+        set(v) = sp.edit().putString(KEY_NAME, v).apply()
 
     var labelWidthMm: Int
         get() = sp.getInt(KEY_W, 50)
@@ -40,6 +46,7 @@ class Prefs(context: Context) {
 
     private companion object {
         const val KEY_MAC = "printer_mac"
+        const val KEY_NAME = "printer_name"
         const val KEY_W = "label_w_mm"
         const val KEY_H = "label_h_mm"
         const val KEY_SPEED = "speed"

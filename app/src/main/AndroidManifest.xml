@@ -3,12 +3,13 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-      Android 12+ (API 31+): connecting to an ALREADY-BONDED device needs only
-      BLUETOOTH_CONNECT. No location permission, no scanning.
+      The printer speaks BLE, not Bluetooth Classic, so there is no bond to
+      lean on and scanning is mandatory rather than optional.
 
-      BLUETOOTH_SCAN is declared with neverForLocation purely so the optional
-      "find my printer" path in settings works without a location grant. If you
-      always pair via system Settings first, you can delete it entirely.
+      On Android 12+ (API 31+) that is BLUETOOTH_SCAN + BLUETOOTH_CONNECT.
+      neverForLocation is what keeps a location grant out of it: it promises
+      the scan results are not used to derive position, so the system does not
+      demand ACCESS_FINE_LOCATION alongside.
     -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission
@@ -25,12 +26,24 @@
         android:maxSdkVersion="30" />
 
     <!--
+      Before API 31 there is no neverForLocation escape hatch: a BLE scan
+      returns nothing at all without a location grant, however unrelated to
+      location the actual intent is. Capped at 30 so Android 12+ never sees it.
+    -->
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+
+    <!--
       Deliberately NO android.permission.INTERNET. The label is rendered
       entirely on-device, so the app never touches the network.
     -->
 
     <uses-feature
         android:name="android.hardware.bluetooth"
+        android:required="true" />
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
         android:required="true" />
 
     <application

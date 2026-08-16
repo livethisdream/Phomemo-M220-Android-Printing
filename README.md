@@ -19,25 +19,49 @@ The asset ID is pulled out of the URL path (`/a/000-001`).
 
 | Decision | Reason |
 | --- | --- |
-| Native app, not a PWA | Web Bluetooth shows a device picker on every print and requires HTTPS. A bonded Classic device does neither. |
-| Bluetooth Classic SPP, not BLE | `vivier/phomemo-tools` drives the M220 over rfcomm. A plain socket avoids GATT discovery, MTU chunking and flow control. |
+| Native app, not a PWA | Web Bluetooth shows a device picker on **every** print and requires HTTPS. A native app picks the printer once and remembers the address. |
+| BLE GATT | Not by choice. The M220 advertises BLE only to Android, so a Classic bond never sticks — see below. |
 | Render on-device | Removes the separate label service entirely. The app declares no `INTERNET` permission at all. |
 | No dithering | Dithering is for photographs. On a QR code it destroys module edges. Everything drawn is already pure black/white, so a hard threshold is sharper. |
 
+## Transport: BLE, not Classic SPP
+
+This started out as Bluetooth Classic (RFCOMM/SPP), reasoning that
+`vivier/phomemo-tools` drives the M220 over rfcomm on Linux. That does not
+carry over to Android. The symptom is that the printer **will not stay paired**
+in Settings → Bluetooth: a Classic bond against a device exposing no Classic
+services has nothing to hold onto.
+
+The diagnostic is that a Web Bluetooth page prints to this unit successfully.
+Web Bluetooth cannot speak Classic SPP — the spec only exposes GATT — so
+anything a browser can drive is reachable over BLE by definition.
+
+A happy consequence: **GATT needs no bond.** There is no pairing step to lose.
+The app scans, you pick the printer once, and it remembers the address.
+
+The command bytes did not change. `PhomemoM220` and `LabelRenderer` never knew
+which transport was carrying them.
+
 ## Permissions
 
-On Android 12+, connecting to an already-bonded device needs only
-`BLUETOOTH_CONNECT` — **no location permission**, which was the whole point of
-not using the vendor app. `BLUETOOTH_SCAN` is declared `neverForLocation` and
-is only there for the optional printer-discovery path; delete it if you always
-pair through system Settings.
+On Android 12+ this is `BLUETOOTH_SCAN` + `BLUETOOTH_CONNECT`, still with **no
+location permission** — `neverForLocation` on the scan declaration is what
+buys that, by promising scan results are not used to infer position.
+
+Below Android 12 there is no such escape hatch: a BLE scan returns zero results
+without `ACCESS_FINE_LOCATION`, however unrelated to location the intent is. It
+is declared `maxSdkVersion="30"` so Android 12+ never sees it.
+
+Note this is weaker than the original Classic design, which needed no scan at
+all. Scanning is not optional once there is no bond to read.
 
 ## Setup
 
-1. Power on the M220, pair it in **Settings → Bluetooth**. Do this before first
-   launch — the app looks at bonded devices, it does not scan.
-2. `./gradlew assembleDebug`, install the APK.
-3. Open the app directly once to set your label stock size.
+1. `./gradlew assembleDebug`, install the APK.
+2. Power on the M220. **Do not pair it in Settings → Bluetooth** — it will not
+   stay paired, and the app does not look at bonded devices.
+3. Open the app, tap **Find printer**, pick yours from the list. Set your label
+   stock size while you are there.
 
 ## Label geometry
 
@@ -73,18 +97,23 @@ Defaults to `LABEL_WITH_GAPS` (`0x0a`), correct for die-cut rolls. Switch
 
 These need a real M220 in hand:
 
-- **SPP availability.** The protocol is documented from USB captures and the
-  driver connects over rfcomm on Linux, but I have not confirmed this specific
-  unit advertises SPP to Android rather than BLE only. If `connect()` throws,
-  that is the first thing to check — replace `SppTransport` with a GATT
-  implementation and chunk writes to `MTU - 3`. Nothing else changes.
-- **Chunk size and inter-write delay.** 512 bytes / 20 ms is a conservative
-  starting guess, not a measured value.
+- ~~**SPP availability.**~~ Resolved: it is BLE only. See the transport section.
+- **Which characteristic takes the job.** `BleTransport` discovers this at
+  runtime rather than hardcoding a UUID, trying known ones first and then any
+  writable characteristic. This is deliberate — these printers are split across
+  at least two vendor service families, and guessing wrong produces a connect
+  that succeeds and then silently prints nothing. If yours picks the wrong one,
+  that is where to look.
+- **Chunk size and pacing.** Now `MTU - 3` after negotiating up from the 23-byte
+  default, with 8 ms between unacknowledged writes. Derived rather than
+  measured, so a long label is the thing to test.
 - **Footer behaviour.** The two footer commands should feed to the next gap.
   Whether that lands correctly on your stock is worth checking on a scrap roll
   before you print fifty.
-- **Device name prefixes.** `SppTransport.KNOWN_PREFIXES` is a guess at how the
-  M220 advertises itself. Check the name in Bluetooth settings and adjust.
+- **Advertised name.** Deliberately *not* used to filter. The name a Phomemo
+  advertises frequently differs from the one on its own screen — an M110S shows
+  up as `Q199E…` — so the picker lists everything found and merely sorts likely
+  printers first.
 
 ## Licensing
 
