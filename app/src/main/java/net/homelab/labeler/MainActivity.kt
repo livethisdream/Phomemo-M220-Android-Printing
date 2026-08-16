@@ -150,17 +150,26 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
+        // Scanning replaces this screen, so commit any edits first rather than
+        // silently discarding them on the way to the picker.
+        val commitFields = {
+            prefs.labelWidthMm = width.value() ?: prefs.labelWidthMm
+            prefs.labelHeightMm = height.value() ?: prefs.labelHeightMm
+            prefs.density = density.value() ?: prefs.density
+        }
+
         root.addView(Button(this).apply {
             text = "Find printer"
-            setOnClickListener { withBluetoothPermission { scanForPrinters() } }
+            setOnClickListener {
+                commitFields()
+                withBluetoothPermission { scanForPrinters() }
+            }
         })
 
         root.addView(Button(this).apply {
             text = "Save"
             setOnClickListener {
-                prefs.labelWidthMm = width.value() ?: prefs.labelWidthMm
-                prefs.labelHeightMm = height.value() ?: prefs.labelHeightMm
-                prefs.density = density.value() ?: prefs.density
+                commitFields()
                 toast("Saved")
                 pending?.let { showPreview(it) }
             }
