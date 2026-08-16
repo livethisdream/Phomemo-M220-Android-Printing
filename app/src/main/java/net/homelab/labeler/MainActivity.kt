@@ -33,10 +33,15 @@ class MainActivity : AppCompatActivity() {
     private var preview: ImageView? = null
     private var status: TextView? = null
 
+    /** What to run once the user answers the BLUETOOTH_CONNECT dialog. */
+    private var afterPermission: (() -> Unit)? = null
+
     private val requestBluetooth = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) doPrint() else toast("Bluetooth permission is required to print")
+        val next = afterPermission
+        afterPermission = null
+        if (granted) next?.invoke() else toast("Bluetooth permission is required to reach the printer")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -128,16 +133,32 @@ class MainActivity : AppCompatActivity() {
         root.addView(height)
         root.addView(density)
 
-        val paired = transport.bondedPrinters()
+        // Listing bonded devices needs BLUETOOTH_CONNECT on Android 12+, and
+        // this screen is reachable straight from the launcher, before the user
+        // has ever seen the permission dialog. Ask, rather than assume.
+        val hasPermission = hasConnectPermission()
+        val paired = if (hasPermission) transport.bondedPrinters() else emptyList()
+
         root.addView(
             body(
-                if (paired.isEmpty()) {
-                    "No paired Phomemo printer detected. Pair the M220 in Settings > Bluetooth, then reopen this screen."
-                } else {
-                    "Printer: " + paired.joinToString { it.name ?: it.address }
+                when {
+                    !hasPermission ->
+                        "Bluetooth permission has not been granted yet, so paired printers cannot be listed."
+                    paired.isEmpty() ->
+                        "No paired Phomemo printer detected. Pair the M220 in Settings > Bluetooth, then reopen this screen."
+                    else ->
+                        "Printer: " + paired.joinToString { it.name ?: it.address }
                 }
             )
         )
+
+        if (!hasPermission) {
+            root.addView(Button(this).apply {
+                text = "Grant Bluetooth permission"
+                // Re-render the screen so the printer line fills in.
+                setOnClickListener { withBluetoothPermission { showSettings() } }
+            })
+        }
 
         root.addView(Button(this).apply {
             text = "Save"
@@ -145,7 +166,10 @@ class MainActivity : AppCompatActivity() {
                 prefs.labelWidthMm = width.value() ?: prefs.labelWidthMm
                 prefs.labelHeightMm = height.value() ?: prefs.labelHeightMm
                 prefs.density = density.value() ?: prefs.density
-                prefs.printerMac = paired.firstOrNull()?.address
+                // Only overwrite a stored MAC when there is a candidate to
+                // replace it with. Otherwise visiting this screen without the
+                // permission grant would wipe a printer that was working.
+                paired.firstOrNull()?.let { prefs.printerMac = it.address }
                 toast("Saved")
                 pending?.let { showPreview(it) }
             }
@@ -156,17 +180,26 @@ class MainActivity : AppCompatActivity() {
 
     // --- Printing -------------------------------------------------------------
 
-    private fun requestPrint() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val granted = ContextCompat.checkSelfPermission(
+    private fun requestPrint() = withBluetoothPermission { doPrint() }
+
+    /**
+     * BLUETOOTH_CONNECT is a runtime permission from Android 12. Below that it
+     * is the install-time BLUETOOTH permission, already granted from the
+     * manifest, so there is nothing to ask for.
+     */
+    private fun hasConnectPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(
                 this, Manifest.permission.BLUETOOTH_CONNECT
             ) == PackageManager.PERMISSION_GRANTED
-            if (!granted) {
-                requestBluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
-                return
-            }
+
+    private fun withBluetoothPermission(action: () -> Unit) {
+        if (hasConnectPermission()) {
+            action()
+        } else {
+            afterPermission = action
+            requestBluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
         }
-        doPrint()
     }
 
     private fun doPrint() {

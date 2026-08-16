@@ -24,11 +24,21 @@ class SppTransport {
 
     class PrinterNotFound(msg: String) : IOException(msg)
 
+    /**
+     * Empty list rather than a throw when BLUETOOTH_CONNECT is missing: the
+     * settings screen calls this and is reachable before the user has ever
+     * been asked for the permission. Callers that need to distinguish "not
+     * granted" from "nothing paired" should check the permission themselves.
+     */
     fun bondedPrinters(): List<BluetoothDevice> {
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: return emptyList()
-        return adapter.bondedDevices.orEmpty().filter { device ->
-            val name = device.name.orEmpty()
-            KNOWN_PREFIXES.any { name.contains(it, ignoreCase = true) }
+        return try {
+            adapter.bondedDevices.orEmpty().filter { device ->
+                val name = device.name.orEmpty()
+                KNOWN_PREFIXES.any { name.contains(it, ignoreCase = true) }
+            }
+        } catch (_: SecurityException) {
+            emptyList()
         }
     }
 
@@ -53,7 +63,15 @@ class SppTransport {
         }
 
         // Discovery running during connect is a classic cause of flaky RFCOMM.
-        if (adapter.isDiscovering) adapter.cancelDiscovery()
+        // On API 31+ both of these calls need BLUETOOTH_SCAN, which the app
+        // never requests at runtime - it is declared only for the optional
+        // discovery path. This is an optimisation, so failing to cancel must
+        // not take the print down with it.
+        try {
+            if (adapter.isDiscovering) adapter.cancelDiscovery()
+        } catch (_: SecurityException) {
+            // No BLUETOOTH_SCAN grant. Connect anyway.
+        }
 
         var socket: BluetoothSocket? = null
         try {
