@@ -10,12 +10,16 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import java.io.Closeable
 import java.io.IOException
+import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -47,6 +51,12 @@ class BleTransport(context: Context) {
     private val adapter: BluetoothAdapter?
         get() = (appContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
 
+    /**
+     * Devices seen by the most recent scan, kept so a connection can reuse the
+     * scanner's own BluetoothDevice rather than rebuilding one from a MAC.
+     */
+    private val lastSeen = ConcurrentHashMap<String, BluetoothDevice>()
+
     class PrinterNotFound(msg: String) : IOException(msg)
     class PrinterProtocol(msg: String) : IOException(msg)
 
@@ -65,15 +75,35 @@ class BleTransport(context: Context) {
      * invisible with no way to override it, so the user picks from the list.
      */
     fun scan(timeoutMs: Long = SCAN_MS): List<Found> {
+        val devices = scanRaw(filters = null, timeoutMs = timeoutMs, stopOnFirstMatch = false)
+        return devices
+            .map { Found(it.address, runCatching { it.name }.getOrNull()) }
+            .sortedWith(
+                compareByDescending<Found> { looksLikePrinter(it.name) }
+                    .thenBy { it.name == null }
+                    .thenBy { it.label }
+            )
+    }
+
+    /**
+     * Runs a scan and returns the live BluetoothDevice objects, caching them by
+     * address. Handing back the real objects matters - see [resolve].
+     */
+    private fun scanRaw(
+        filters: List<ScanFilter>?,
+        timeoutMs: Long,
+        stopOnFirstMatch: Boolean
+    ): List<BluetoothDevice> {
         val scanner = adapter?.takeIf { it.isEnabled }?.bluetoothLeScanner
             ?: throw PrinterNotFound("Bluetooth is turned off")
 
-        val seen = ConcurrentHashMap<String, Found>()
+        val seen = Collections.synchronizedMap(LinkedHashMap<String, BluetoothDevice>())
         val stopped = CountDownLatch(1)
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val name = result.device.name ?: result.scanRecord?.deviceName
-                seen.putIfAbsent(result.device.address, Found(result.device.address, name))
+                seen.putIfAbsent(result.device.address, result.device)
+                lastSeen[result.device.address] = result.device
+                if (stopOnFirstMatch) stopped.countDown()
             }
 
             override fun onBatchScanResults(results: MutableList<ScanResult>) {
@@ -90,7 +120,7 @@ class BleTransport(context: Context) {
             .build()
 
         try {
-            scanner.startScan(null, settings, callback)
+            scanner.startScan(filters, settings, callback)
             stopped.await(timeoutMs, TimeUnit.MILLISECONDS)
         } catch (_: SecurityException) {
             throw PrinterNotFound("Bluetooth scan permission has not been granted")
@@ -98,11 +128,38 @@ class BleTransport(context: Context) {
             runCatching { scanner.stopScan(callback) }
         }
 
-        return seen.values.sortedWith(
-            compareByDescending<Found> { looksLikePrinter(it.name) }
-                .thenBy { it.name == null }
-                .thenBy { it.label }
-        )
+        // The stack needs a moment after a scan stops before it will accept a
+        // connection. Connecting into the tail of a scan is a documented source
+        // of spurious GATT failures.
+        Thread.sleep(POST_SCAN_SETTLE_MS)
+
+        return synchronized(seen) { seen.values.toList() }
+    }
+
+    /**
+     * Turns a saved address back into a connectable device.
+     *
+     * `getRemoteDevice(mac)` is the obvious way to do this and it is a trap: a
+     * device rebuilt from a bare MAC string is assumed to use a **public**
+     * address. These printers advertise a **random** address, and connecting
+     * with the wrong address type fails with the maddeningly generic GATT
+     * error 133 - the same code Android uses for a dozen unrelated problems.
+     *
+     * The address type is not recoverable from the string, so the only reliable
+     * fix is to use the actual BluetoothDevice the scanner handed us. Cached
+     * from the last scan when possible, re-scanned for by address when not.
+     */
+    private fun resolve(address: String): BluetoothDevice {
+        lastSeen[address]?.let { return it }
+
+        val filter = ScanFilter.Builder().setDeviceAddress(address).build()
+        val found = scanRaw(listOf(filter), RESOLVE_SCAN_MS, stopOnFirstMatch = true)
+
+        return found.firstOrNull { it.address == address }
+            ?: throw PrinterNotFound(
+                "Could not find the saved printer nearby. Check it is powered on " +
+                    "and in range, or pick it again with Find printer."
+            )
     }
 
     /** Opens a connection, writes the job, disconnects. */
@@ -114,13 +171,27 @@ class BleTransport(context: Context) {
         val address = mac ?: throw PrinterNotFound(
             "No printer selected. Open Label settings and tap Find printer."
         )
-        val device = try {
-            adapter.getRemoteDevice(address)
-        } catch (_: IllegalArgumentException) {
-            throw PrinterNotFound("Saved printer address is not usable: $address")
-        }
+        val device = resolve(address)
 
-        Session(device).use { it.write(payload) }
+        // 133 is frequently transient - a busy stack, a peripheral still tearing
+        // down a previous link. Retrying with a fresh GATT client clears it.
+        //
+        // Only ever retry a job that wrote nothing, though. Re-sending one that
+        // died part way through would feed a second label through the head on
+        // top of a half-printed one.
+        var lastError: IOException? = null
+        repeat(CONNECT_ATTEMPTS) { attempt ->
+            val session = Session(device)
+            try {
+                session.use { it.write(payload) }
+                return
+            } catch (e: IOException) {
+                lastError = e
+                if (session.bytesWritten > 0) throw e
+                if (attempt < CONNECT_ATTEMPTS - 1) Thread.sleep(RETRY_BACKOFF_MS)
+            }
+        }
+        throw lastError ?: PrinterProtocol("Printing failed for an unknown reason")
     }
 
     /**
@@ -139,6 +210,10 @@ class BleTransport(context: Context) {
         @Volatile private var failure: String? = null
         @Volatile private var mtu = DEFAULT_MTU
 
+        /** Guards the retry in [send] against reprinting a partial label. */
+        @Volatile var bytesWritten = 0
+            private set
+
         private var gatt: BluetoothGatt? = null
 
         private val callback = object : BluetoothGattCallback() {
@@ -148,7 +223,7 @@ class BleTransport(context: Context) {
                         status == BluetoothGatt.GATT_SUCCESS -> connected.countDown()
 
                     newState == BluetoothProfile.STATE_DISCONNECTED -> {
-                        if (connected.count > 0L) failure = "Could not connect to the printer (status $status)"
+                        if (connected.count > 0L) failure = describeConnectFailure(status)
                         else if (failure == null) failure = "The printer dropped the connection (status $status)"
                         releaseAll()
                     }
@@ -186,7 +261,7 @@ class BleTransport(context: Context) {
         }
 
         fun write(payload: ByteArray) {
-            gatt = device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
+            gatt = connectOnMainThread()
                 ?: throw PrinterNotFound("Could not open a connection to the printer")
             val g = gatt!!
 
@@ -232,6 +307,7 @@ class BleTransport(context: Context) {
                 failure?.let { throw PrinterProtocol(it) }
 
                 offset += n
+                bytesWritten = offset
                 // Unacknowledged writes have no back-pressure of their own and
                 // the print head buffer is small, so pace them by hand.
                 if (noResponse) Thread.sleep(NO_RESPONSE_PACING_MS)
@@ -239,6 +315,30 @@ class BleTransport(context: Context) {
 
             // Let the head finish before the connection drops.
             Thread.sleep(FINISH_MS)
+        }
+
+        /**
+         * `connectGatt` is called from a background dispatcher here, and the
+         * Bluetooth stack has a long history of returning status 133 when it is
+         * invoked off the main thread. Hopping to the main looper for the call
+         * itself costs nothing; callbacks still arrive on a binder thread and
+         * are still consumed by the latches below.
+         */
+        private fun connectOnMainThread(): BluetoothGatt? {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                return device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
+            }
+
+            val holder = arrayOfNulls<BluetoothGatt>(1)
+            val posted = CountDownLatch(1)
+            Handler(Looper.getMainLooper()).post {
+                holder[0] = runCatching {
+                    device.connectGatt(appContext, false, callback, BluetoothDevice.TRANSPORT_LE)
+                }.getOrNull()
+                posted.countDown()
+            }
+            posted.await(CONNECT_DISPATCH_MS, TimeUnit.MILLISECONDS)
+            return holder[0]
         }
 
         private fun await(latch: CountDownLatch, timeoutMs: Long, message: String) {
@@ -297,6 +397,17 @@ class BleTransport(context: Context) {
             ?: writable.firstOrNull()
     }
 
+    /**
+     * 133 is GATT_ERROR, the stack's catch-all. It means "something went wrong"
+     * and nothing more, so say what is actually worth trying.
+     */
+    private fun describeConnectFailure(status: Int): String = when (status) {
+        GATT_ERROR -> "Could not connect to the printer. Power-cycle the M220, " +
+            "then try again. If it keeps failing, re-pick it with Find printer."
+        GATT_CONNECTION_TIMEOUT -> "The printer did not respond. Check it is powered on and in range."
+        else -> "Could not connect to the printer (status $status)"
+    }
+
     private fun looksLikePrinter(name: String?): Boolean {
         val n = name?.trim().orEmpty()
         if (n.isEmpty()) return false
@@ -336,7 +447,17 @@ class BleTransport(context: Context) {
         const val MIN_CHUNK = 20
         const val MAX_CHUNK = 512
 
+        /** BluetoothGatt.GATT_ERROR - not public API, so spelled out. */
+        const val GATT_ERROR = 133
+        const val GATT_CONNECTION_TIMEOUT = 8
+
+        const val CONNECT_ATTEMPTS = 3
+        const val RETRY_BACKOFF_MS = 700L
+        const val POST_SCAN_SETTLE_MS = 250L
+        const val CONNECT_DISPATCH_MS = 5_000L
+
         const val SCAN_MS = 6_000L
+        const val RESOLVE_SCAN_MS = 8_000L
         const val CONNECT_MS = 15_000L
         const val DISCOVER_MS = 15_000L
         const val MTU_MS = 3_000L
