@@ -24,6 +24,13 @@ object LabelRenderer {
     /** 203.2 dpi works out to exactly 8 dots per millimetre. */
     const val DOTS_PER_MM = 8
 
+    /** Below this a QR has too few dots per module to scan reliably. */
+    private const val MIN_QR = 96
+
+    /** Space reserved for text so the QR cannot squeeze it out entirely. */
+    private const val MIN_TEXT_WIDTH = 12 * DOTS_PER_MM
+    private const val MIN_TEXT_HEIGHT = 7 * DOTS_PER_MM
+
     data class Label(
         val url: String,
         val title: String?,
@@ -32,55 +39,107 @@ object LabelRenderer {
 
     fun render(label: Label, widthMm: Int, heightMm: Int): Bitmap {
         // Raster width must be a whole number of bytes.
-        val rawWidth = widthMm * DOTS_PER_MM
-        val width = (rawWidth / 8) * 8
+        val width = ((widthMm * DOTS_PER_MM) / 8) * 8
         val height = heightMm * DOTS_PER_MM
 
-        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val bmp = Bitmap.createBitmap(
+            width.coerceAtLeast(8),
+            height.coerceAtLeast(8),
+            Bitmap.Config.ARGB_8888
+        )
         val canvas = Canvas(bmp)
         canvas.drawColor(Color.WHITE)
 
         val margin = (1.5 * DOTS_PER_MM).toInt()
         val gutter = DOTS_PER_MM
 
-        // QR is square and fills the label height minus margins.
-        val qrSize = height - (margin * 2)
-        val qr = encodeQr(label.url, qrSize)
-        canvas.drawBitmap(qr, margin.toFloat(), margin.toFloat(), null)
+        val innerW = width - margin * 2
+        val innerH = height - margin * 2
+        if (innerW < MIN_QR || innerH < MIN_QR) return bmp
 
-        // Text column occupies whatever is left to the right of the QR.
-        val textLeft = margin + qrSize + gutter
-        val textWidth = width - textLeft - margin
-        if (textWidth > 20) {
-            drawTextColumn(canvas, label, textLeft.toFloat(), textWidth, height, margin)
+        val title = label.title?.takeIf { it.isNotBlank() }
+        val assetId = label.assetId?.takeIf { it.isNotBlank() }
+        val hasText = title != null || assetId != null
+
+        /*
+         * Text goes beside the QR on stock wider than it is tall, and beneath
+         * it otherwise.
+         *
+         * The previous layout always sized the QR to the label height and put
+         * text to its right, which is correct for 50x30 and wrong for anything
+         * portrait: on 50x70 the QR came out 536 dots square inside a 400 dot
+         * wide bitmap and was simply clipped.
+         */
+        val beside = innerW >= innerH
+        val maxQr = minOf(innerW, innerH)
+        val budget = when {
+            !hasText -> maxQr
+            beside -> innerW - MIN_TEXT_WIDTH - gutter
+            else -> innerH - MIN_TEXT_HEIGHT - gutter
+        }
+        val qrSize = budget.coerceIn(minOf(MIN_QR, maxQr), maxQr)
+
+        val qrLeft: Int
+        val qrTop: Int
+        val textLeft: Int
+        val textTop: Int
+        val textWidth: Int
+        val textHeight: Int
+
+        if (beside) {
+            qrLeft = margin
+            qrTop = margin + (innerH - qrSize) / 2
+            textLeft = margin + qrSize + gutter
+            textTop = margin
+            textWidth = width - textLeft - margin
+            textHeight = innerH
+        } else {
+            qrLeft = margin + (innerW - qrSize) / 2
+            qrTop = margin
+            textLeft = margin
+            textTop = margin + qrSize + gutter
+            textWidth = innerW
+            textHeight = height - textTop - margin
+        }
+
+        canvas.drawBitmap(
+            encodeQr(label.url, qrSize),
+            qrLeft.toFloat(),
+            qrTop.toFloat(),
+            null
+        )
+
+        if (hasText && textWidth > 20 && textHeight > 16) {
+            drawText(canvas, title, assetId, textLeft, textTop, textWidth, textHeight)
         }
 
         return bmp
     }
 
-    private fun drawTextColumn(
+    /** Title wrapped at the top of its box, asset ID pinned to the bottom. */
+    private fun drawText(
         canvas: Canvas,
-        label: Label,
-        left: Float,
+        title: String?,
+        assetId: String?,
+        left: Int,
+        top: Int,
         maxWidth: Int,
-        height: Int,
-        margin: Int
+        maxHeight: Int
     ) {
-        val title = label.title?.takeIf { it.isNotBlank() }
-        val assetId = label.assetId?.takeIf { it.isNotBlank() }
-
         val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            textSize = 4.5f * DOTS_PER_MM
+            // Never taller than a third of the box, so two lines plus the asset
+            // ID still fit when the box is short.
+            textSize = minOf(4.5f * DOTS_PER_MM, maxHeight / 3f)
         }
         val idPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             typeface = Typeface.MONOSPACE
-            textSize = 3.5f * DOTS_PER_MM
+            textSize = minOf(3.5f * DOTS_PER_MM, maxHeight / 4f)
         }
 
-        // Shrink the title until at most two wrapped lines fit.
+        // Shrink the title until at most two wrapped lines hold all of it.
         var titleLines: List<String> = emptyList()
         if (title != null) {
             while (titlePaint.textSize > 2f * DOTS_PER_MM) {
@@ -88,19 +147,19 @@ object LabelRenderer {
                 if (titleLines.joinToString(" ").length >= title.length) break
                 titlePaint.textSize -= 2f
             }
+            if (titleLines.isEmpty()) titleLines = wrap(title, titlePaint, maxWidth, maxLines = 2)
         }
 
-        var y = margin + titlePaint.textSize
+        var y = top + titlePaint.textSize
         for (line in titleLines) {
-            canvas.drawText(line, left, y, titlePaint)
+            canvas.drawText(line, left.toFloat(), y, titlePaint)
             y += titlePaint.textSize * 1.15f
         }
 
         if (assetId != null) {
-            // Pin the asset ID to the bottom of the label.
-            val baseline = (height - margin).toFloat()
-            if (baseline > y) {
-                canvas.drawText(assetId, left, baseline, idPaint)
+            val baseline = (top + maxHeight).toFloat()
+            if (baseline > y - titlePaint.textSize) {
+                canvas.drawText(assetId, left.toFloat(), baseline, idPaint)
             }
         }
     }
