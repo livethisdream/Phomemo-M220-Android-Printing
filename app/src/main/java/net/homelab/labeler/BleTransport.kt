@@ -386,10 +386,15 @@ class BleTransport(context: Context) {
          * ability to hear why a job failed.
          */
         private fun enableNotifications(g: BluetoothGatt): Boolean {
-            val notifyChar = g.services
+            val notifiable = g.services
                 .filter { it.uuid !in HOUSEKEEPING_SERVICES }
                 .flatMap { it.characteristics }
-                .firstOrNull { it.properties and NOTIFIABLE != 0 }
+                .filter { it.properties and NOTIFIABLE != 0 }
+
+            // ff03 is the documented status channel; fall back to whatever else
+            // is notifiable so other models in the family still report.
+            val notifyChar = notifiable.firstOrNull { it.uuid == STATUS_CHARACTERISTIC }
+                ?: notifiable.firstOrNull()
                 ?: return false
 
             if (!g.setCharacteristicNotification(notifyChar, true)) return false
@@ -486,8 +491,14 @@ class BleTransport(context: Context) {
                 BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             }
 
-            // ATT overhead is 3 bytes: one opcode, two handle.
-            val chunkSize = (mtu - 3).coerceIn(MIN_CHUNK, MAX_CHUNK)
+            // 128 bytes, not MTU-3.
+            //
+            // Filling a negotiated 517-byte MTU is the obvious thing to do and
+            // it overruns this print head: the working web implementation sends
+            // 128-byte chunks with a 20 ms gap regardless of what the MTU
+            // negotiation allows, and that pacing is not incidental. ATT
+            // overhead is still 3 bytes, so a small MTU caps it further.
+            val chunkSize = minOf(VENDOR_CHUNK, mtu - 3).coerceAtLeast(MIN_CHUNK)
 
             var offset = 0
             while (offset < payload.size) {
@@ -505,9 +516,10 @@ class BleTransport(context: Context) {
 
                 offset += n
                 bytesWritten = offset
-                // Unacknowledged writes have no back-pressure of their own and
-                // the print head buffer is small, so pace them by hand.
-                if (noResponse) Thread.sleep(NO_RESPONSE_PACING_MS)
+                // Pace every chunk, not just unacknowledged ones. The head
+                // needs the gap to drain; an ATT-level ack only says the radio
+                // took the bytes, not that the printer consumed them.
+                Thread.sleep(CHUNK_DELAY_MS)
             }
 
             // Let the head finish before the connection drops.
@@ -647,13 +659,18 @@ class BleTransport(context: Context) {
         )
 
         /**
-         * Fast path. The ff00 family and the Microchip transparent-UART service
-         * cover the units documented publicly; discovery handles the rest.
+         * ff02 in service ff00 is what the working web implementation writes
+         * to; the Microchip transparent-UART characteristic covers models that
+         * use that stack instead. Discovery handles anything else.
          */
         val PREFERRED_CHARACTERISTICS = setOf(
             UUID.fromString("0000FF02-0000-1000-8000-00805F9B34FB"),
             UUID.fromString("49535343-8841-43F4-A8D4-ECBE34729BB3")
         )
+
+        /** ff03 - where the printer pushes its 0x1A status frames. */
+        val STATUS_CHARACTERISTIC: UUID =
+            UUID.fromString("0000FF03-0000-1000-8000-00805F9B34FB")
 
         const val WRITABLE = BluetoothGattCharacteristic.PROPERTY_WRITE or
             BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE
@@ -669,8 +686,13 @@ class BleTransport(context: Context) {
 
         const val DEFAULT_MTU = 23
         const val PREFERRED_MTU = 517
+        /**
+         * The chunk size the working web implementation uses, with its pacing.
+         * Not derived from the MTU - filling a 517-byte MTU overruns the head.
+         */
+        const val VENDOR_CHUNK = 128
+        const val CHUNK_DELAY_MS = 20L
         const val MIN_CHUNK = 20
-        const val MAX_CHUNK = 512
 
         /** BluetoothGatt.GATT_ERROR - not public API, so spelled out. */
         const val GATT_ERROR = 133
@@ -687,7 +709,6 @@ class BleTransport(context: Context) {
         const val DISCOVER_MS = 15_000L
         const val MTU_MS = 3_000L
         const val WRITE_MS = 10_000L
-        const val NO_RESPONSE_PACING_MS = 8L
         const val FINISH_MS = 600L
         const val DESCRIPTOR_MS = 3_000L
         const val QUERY_REPLY_MS = 900L
