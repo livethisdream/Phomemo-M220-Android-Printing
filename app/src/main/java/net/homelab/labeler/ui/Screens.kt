@@ -657,6 +657,27 @@ fun QualityScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: () 
                 )
             }
 
+            SectionCard("Feed after printing") {
+                Text(
+                    "%.0f mm".format(vm.feedDots / 8f),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Slider(
+                    value = vm.feedDots / 8f,
+                    onValueChange = { vm.updateFeedMm(it) },
+                    valueRange = 0f..30f,
+                    steps = 29
+                )
+                Text(
+                    "How far the label advances once printed. Raise it until the " +
+                        "label clears the tear bar and you no longer reach for the " +
+                        "printer's own feed button. Ignored on the m110 command set, " +
+                        "whose footer feeds to the next gap by itself.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             SectionCard("Print head width") {
                 var head by remember { mutableStateOf(vm.headWidthMm.toString()) }
                 OutlinedTextField(

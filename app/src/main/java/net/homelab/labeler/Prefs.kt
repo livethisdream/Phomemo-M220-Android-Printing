@@ -88,6 +88,18 @@ class Prefs(context: Context) {
             .putString(KEY_CUSTOM_SIZES, v.joinToString(",") { it.encode() })
             .apply()
 
+    /**
+     * Dots fed after a label, at 8 per mm. The reference default of 32 is only
+     * 4 mm, which leaves the label short of the tear bar on most units - hence
+     * reaching for the printer's own feed button after every print.
+     *
+     * Only the m-series command set uses this. The m110 footer is itself a
+     * feed-to-gap sequence, so the value is ignored there.
+     */
+    var feedDots: Int
+        get() = sp.getInt(KEY_FEED, PhomemoM220.DEFAULT_FEED_DOTS)
+        set(v) = sp.edit().putInt(KEY_FEED, v.coerceIn(0, 240)).apply()
+
     /** See PhomemoM220.MEDIA_* constants. */
     var mediaType: Int
         get() = sp.getInt(KEY_MEDIA, PhomemoM220.MEDIA_LABEL_WITH_GAPS)
@@ -105,5 +117,6 @@ class Prefs(context: Context) {
         const val KEY_DENSITY = "density"
         const val KEY_MEDIA = "media_type"
         const val KEY_CUSTOM_SIZES = "custom_sizes"
+        const val KEY_FEED = "feed_dots"
     }
 }

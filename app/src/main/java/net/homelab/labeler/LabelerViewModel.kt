@@ -71,6 +71,8 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var headWidthMm by mutableStateOf(prefs.headWidthMm)
         private set
+    var feedDots by mutableStateOf(prefs.feedDots)
+        private set
     var protocol by mutableStateOf(prefs.protocol)
         private set
     var printerName by mutableStateOf(prefs.printerName)
@@ -250,6 +252,12 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         prefs.headWidthMm = headWidthMm
     }
 
+    /** Taken in millimetres because that is how label stock is measured. */
+    fun updateFeedMm(mm: Float) {
+        feedDots = (mm * LabelRenderer.DOTS_PER_MM).toInt().coerceIn(0, 240)
+        prefs.feedDots = feedDots
+    }
+
     fun updateProtocol(value: PhomemoM220.Protocol) {
         protocol = value
         prefs.protocol = value
@@ -331,6 +339,7 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
             density = density,
             protocol = protocol,
             headWidthBytes = headWidthMm,
+            feedDots = feedDots,
             mediaType = prefs.mediaType
         )
         transport.send(prefs.printerMac, steps, characteristic)
