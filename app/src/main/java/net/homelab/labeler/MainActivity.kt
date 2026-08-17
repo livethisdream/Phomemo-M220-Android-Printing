@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
+import java.util.UUID
 
 class MainActivity : AppCompatActivity() {
 
@@ -166,6 +167,22 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        if (prefs.printerMac != null) {
+            root.addView(
+                body(
+                    prefs.characteristicUuid?.let { "Print endpoint: $it" }
+                        ?: "Print endpoint: chosen automatically. If printing reports success but nothing comes out, run diagnostics and try each one."
+                )
+            )
+            root.addView(Button(this).apply {
+                text = "Printer diagnostics"
+                setOnClickListener {
+                    commitFields()
+                    withBluetoothPermission { showDiagnostics() }
+                }
+            })
+        }
+
         root.addView(Button(this).apply {
             text = "Save"
             setOnClickListener {
@@ -237,6 +254,91 @@ class MainActivity : AppCompatActivity() {
         setContentView(ScrollView(this).apply { addView(root) })
     }
 
+    // --- Diagnostics ----------------------------------------------------------
+
+    /**
+     * Lists every writable characteristic and lets the user test each in turn.
+     *
+     * This exists because the failure it diagnoses is invisible from software:
+     * writing a print job to the wrong characteristic succeeds at every layer
+     * Android can see, and the only evidence of the mistake is that no label
+     * comes out. So the person holding the printer does the last step.
+     */
+    private fun showDiagnostics() {
+        val root = column()
+        root.addView(heading("Printer diagnostics"))
+        root.addView(body("Connecting..."))
+        setContentView(root)
+
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { transport.endpoints(prefs.printerMac) }
+            }
+            result.fold(
+                onSuccess = { showEndpoints(it) },
+                onFailure = { e ->
+                    toast(e.message ?: "Could not reach the printer")
+                    showSettings()
+                }
+            )
+        }
+    }
+
+    private fun showEndpoints(endpoints: List<BleTransport.Endpoint>) {
+        val root = column()
+        root.addView(heading("Print endpoints"))
+
+        if (endpoints.isEmpty()) {
+            root.addView(body("This device exposes nothing writable, so it cannot be the printer. Go back and pick a different device."))
+        } else {
+            root.addView(
+                body(
+                    "Load a label, then tap each entry until one prints. Whichever works " +
+                        "is saved and used from then on. Nothing is damaged by trying the wrong one."
+                )
+            )
+            for (endpoint in endpoints) {
+                root.addView(Button(this).apply {
+                    text = endpoint.label
+                    setOnClickListener { testEndpoint(endpoint) }
+                })
+            }
+        }
+
+        root.addView(Button(this).apply {
+            text = "Back"
+            setOnClickListener { showSettings() }
+        })
+
+        setContentView(ScrollView(this).apply { addView(root) })
+    }
+
+    private fun testEndpoint(endpoint: BleTransport.Endpoint) {
+        prefs.characteristicUuid = endpoint.characteristic.toString()
+        toast("Testing ${endpoint.characteristic}")
+
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bmp = LabelRenderer.render(
+                        TEST_LABEL, prefs.labelWidthMm, prefs.labelHeightMm
+                    )
+                    val job = PhomemoM220.buildJob(
+                        raster = LabelRenderer.toRaster(bmp),
+                        speed = prefs.speed,
+                        density = prefs.density,
+                        mediaType = prefs.mediaType
+                    )
+                    transport.send(prefs.printerMac, job, endpoint.characteristic)
+                }
+            }
+            result.fold(
+                onSuccess = { toast("Sent. If a label printed, you are done - tap Back.") },
+                onFailure = { e -> toast(e.message ?: "Failed") }
+            )
+        }
+    }
+
     // --- Printing -------------------------------------------------------------
 
     private fun requestPrint() = withBluetoothPermission { doPrint() }
@@ -285,7 +387,7 @@ class MainActivity : AppCompatActivity() {
                         density = prefs.density,
                         mediaType = prefs.mediaType
                     )
-                    transport.send(prefs.printerMac, job)
+                    transport.send(prefs.printerMac, job, savedCharacteristic())
                 }
             }
 
@@ -331,9 +433,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
+    /** Null (fall back to discovery) if nothing has been confirmed by hand. */
+    private fun savedCharacteristic(): UUID? =
+        prefs.characteristicUuid?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+
     private companion object {
         val URL_RE = Regex("""https?://\S+""")
         // Homebox asset URLs look like /a/000-001
         val ASSET_RE = Regex("""/a/([0-9]{3}-[0-9]{3})""")
+
+        /** Self-contained so diagnostics work without a shared URL to hand. */
+        val TEST_LABEL = LabelRenderer.Label(
+            url = "http://test.local/a/000-001",
+            title = "Test label",
+            assetId = "000-001"
+        )
     }
 }

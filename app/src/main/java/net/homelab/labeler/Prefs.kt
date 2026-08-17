@@ -21,6 +21,14 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_NAME, null)
         set(v) = sp.edit().putString(KEY_NAME, v).apply()
 
+    /**
+     * Which characteristic the job is written to, once the user has confirmed
+     * one by eye. Null means fall back to automatic discovery.
+     */
+    var characteristicUuid: String?
+        get() = sp.getString(KEY_CHARACTERISTIC, null)
+        set(v) = sp.edit().putString(KEY_CHARACTERISTIC, v).apply()
+
     var labelWidthMm: Int
         get() = sp.getInt(KEY_W, 50)
         set(v) = sp.edit().putInt(KEY_W, v).apply()
@@ -47,6 +55,7 @@ class Prefs(context: Context) {
     private companion object {
         const val KEY_MAC = "printer_mac"
         const val KEY_NAME = "printer_name"
+        const val KEY_CHARACTERISTIC = "characteristic_uuid"
         const val KEY_W = "label_w_mm"
         const val KEY_H = "label_h_mm"
         const val KEY_SPEED = "speed"

@@ -65,6 +65,35 @@ class BleTransport(context: Context) {
     }
 
     /**
+     * A writable characteristic the printer exposes. Surfaced to the UI because
+     * a write to the wrong one cannot be detected from this side: BLE
+     * write-without-response is unacknowledged, so the stack reports success
+     * whether or not anything is listening. Only the user, looking at the
+     * printer, can tell the difference.
+     */
+    data class Endpoint(
+        val service: UUID,
+        val characteristic: UUID,
+        val properties: Int
+    ) {
+        val acceptsWithResponse: Boolean
+            get() = properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0
+
+        val acceptsWithoutResponse: Boolean
+            get() = properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
+
+        /** e.g. "ff02 in ff00  (write, write-no-response)" */
+        val label: String
+            get() {
+                val modes = buildList {
+                    if (acceptsWithResponse) add("write")
+                    if (acceptsWithoutResponse) add("write-no-response")
+                }.joinToString(", ")
+                return "${shortUuid(characteristic)} in ${shortUuid(service)}\n($modes)"
+            }
+    }
+
+    /**
      * Blocking scan. Returns everything nearby, sorted so plausible printers
      * float to the top, rather than filtering by name.
      *
@@ -162,9 +191,30 @@ class BleTransport(context: Context) {
             )
     }
 
-    /** Opens a connection, writes the job, disconnects. */
+    /**
+     * Connects, lists every writable characteristic, disconnects. Feeds the
+     * diagnostics screen so a wrong-endpoint guess can be corrected by hand
+     * instead of presenting as a print that silently does nothing.
+     */
     @Throws(IOException::class)
-    fun send(mac: String?, payload: ByteArray) {
+    fun endpoints(mac: String?): List<Endpoint> {
+        val adapter = adapter ?: throw PrinterNotFound("No Bluetooth adapter on this device")
+        if (!adapter.isEnabled) throw PrinterNotFound("Bluetooth is turned off")
+        val address = mac ?: throw PrinterNotFound(
+            "No printer selected. Open Label settings and tap Find printer."
+        )
+        return Session(resolve(address)).use { it.enumerate() }
+    }
+
+    /**
+     * Opens a connection, writes the job, disconnects.
+     *
+     * [preferred] pins the characteristic the job goes to, overriding
+     * discovery, and is what the diagnostics screen saves once the user has
+     * confirmed which one actually produces a label.
+     */
+    @Throws(IOException::class)
+    fun send(mac: String?, payload: ByteArray, preferred: UUID? = null) {
         val adapter = adapter ?: throw PrinterNotFound("No Bluetooth adapter on this device")
         if (!adapter.isEnabled) throw PrinterNotFound("Bluetooth is turned off")
 
@@ -183,7 +233,7 @@ class BleTransport(context: Context) {
         repeat(CONNECT_ATTEMPTS) { attempt ->
             val session = Session(device)
             try {
-                session.use { it.write(payload) }
+                session.use { it.write(payload, preferred) }
                 return
             } catch (e: IOException) {
                 lastError = e
@@ -260,7 +310,8 @@ class BleTransport(context: Context) {
             writeAck?.countDown()
         }
 
-        fun write(payload: ByteArray) {
+        /** Connect + discover, shared by [write] and [enumerate]. */
+        private fun open(): BluetoothGatt {
             gatt = connectOnMainThread()
                 ?: throw PrinterNotFound("Could not open a connection to the printer")
             val g = gatt!!
@@ -275,19 +326,44 @@ class BleTransport(context: Context) {
                 mtuSettled.await(MTU_MS, TimeUnit.MILLISECONDS)
             }
             failure?.let { throw PrinterProtocol(it) }
+            return g
+        }
 
-            val target = pickCharacteristic(g) ?: throw PrinterProtocol(
+        fun enumerate(): List<Endpoint> = open().services
+            .filter { it.uuid !in HOUSEKEEPING_SERVICES }
+            .flatMap { service ->
+                service.characteristics
+                    .filter { it.properties and WRITABLE != 0 }
+                    .map { Endpoint(service.uuid, it.uuid, it.properties) }
+            }
+
+        fun write(payload: ByteArray, preferred: UUID?) {
+            val g = open()
+
+            val target = preferred?.let { wanted ->
+                g.services.asSequence()
+                    .flatMap { it.characteristics.asSequence() }
+                    .firstOrNull { it.uuid == wanted && it.properties and WRITABLE != 0 }
+                    ?: throw PrinterProtocol(
+                        "The chosen characteristic is not on this printer any more. " +
+                            "Re-run Printer diagnostics."
+                    )
+            } ?: pickCharacteristic(g) ?: throw PrinterProtocol(
                 "Connected, but found nothing on this device that accepts a print job. " +
                     "It may not be a printer."
             )
 
-            val noResponse =
-                target.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
-            val writeType = if (noResponse) {
-                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            } else {
+            // Prefer acknowledged writes where the characteristic offers both.
+            // Costs a round trip per chunk, but the printer can actually refuse
+            // one - and silent success is precisely the failure being hunted.
+            val withResponse =
+                target.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0
+            val writeType = if (withResponse) {
                 BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            } else {
+                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
             }
+            val noResponse = !withResponse
 
             // ATT overhead is 3 bytes: one opcode, two handle.
             val chunkSize = (mtu - 3).coerceIn(MIN_CHUNK, MAX_CHUNK)
@@ -464,5 +540,20 @@ class BleTransport(context: Context) {
         const val WRITE_MS = 10_000L
         const val NO_RESPONSE_PACING_MS = 8L
         const val FINISH_MS = 600L
+    }
+}
+
+/**
+ * `0000ff02-0000-1000-8000-00805f9b34fb` reads better as `ff02`.
+ *
+ * File scope rather than a class member because Endpoint is a nested class and
+ * cannot reach the outer instance.
+ */
+private fun shortUuid(uuid: UUID): String {
+    val full = uuid.toString().lowercase()
+    return if (full.endsWith("-0000-1000-8000-00805f9b34fb")) {
+        full.take(8).trimStart('0').ifEmpty { "0000" }
+    } else {
+        full.take(8)
     }
 }
