@@ -52,10 +52,28 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_SPEED, 3)
         set(v) = sp.edit().putInt(KEY_SPEED, v.coerceIn(1, 5)).apply()
 
-    /** 0x01 - 0x0f. Bump this if QR codes scan unreliably. */
+    /**
+     * 1-8, mapped to an ESC 7 heat time. Bump it if QR codes scan unreliably.
+     * The reference default is 6.
+     */
     var density: Int
-        get() = sp.getInt(KEY_DENSITY, 8)
-        set(v) = sp.edit().putInt(KEY_DENSITY, v.coerceIn(1, 15)).apply()
+        get() = sp.getInt(KEY_DENSITY, 6).coerceIn(1, 8)
+        set(v) = sp.edit().putInt(KEY_DENSITY, v.coerceIn(1, 8)).apply()
+
+    /**
+     * Which command set to speak. The M220 is m-series; M110/M120 are m110.
+     * Adjustable because a unit advertising under the Q... scheme matches no
+     * known name pattern and cannot be assigned one by inspection.
+     */
+    var protocol: PhomemoM220.Protocol
+        get() = if (sp.getString(KEY_PROTOCOL, null) == "m110") {
+            PhomemoM220.Protocol.M110
+        } else {
+            PhomemoM220.Protocol.M_SERIES
+        }
+        set(v) = sp.edit()
+            .putString(KEY_PROTOCOL, if (v == PhomemoM220.Protocol.M110) "m110" else "m-series")
+            .apply()
 
     /** See PhomemoM220.MEDIA_* constants. */
     var mediaType: Int
@@ -67,6 +85,7 @@ class Prefs(context: Context) {
         const val KEY_NAME = "printer_name"
         const val KEY_CHARACTERISTIC = "characteristic_uuid"
         const val KEY_HEAD = "head_width_mm"
+        const val KEY_PROTOCOL = "protocol"
         const val KEY_W = "label_w_mm"
         const val KEY_H = "label_h_mm"
         const val KEY_SPEED = "speed"

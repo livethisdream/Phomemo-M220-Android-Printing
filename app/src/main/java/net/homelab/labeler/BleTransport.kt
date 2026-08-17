@@ -232,7 +232,7 @@ class BleTransport(context: Context) {
      * confirmed which one actually produces a label.
      */
     @Throws(IOException::class)
-    fun send(mac: String?, payload: ByteArray, preferred: UUID? = null) {
+    fun send(mac: String?, job: List<PhomemoM220.Step>, preferred: UUID? = null) {
         val adapter = adapter ?: throw PrinterNotFound("No Bluetooth adapter on this device")
         if (!adapter.isEnabled) throw PrinterNotFound("Bluetooth is turned off")
 
@@ -251,7 +251,7 @@ class BleTransport(context: Context) {
         repeat(CONNECT_ATTEMPTS) { attempt ->
             val session = Session(device)
             try {
-                session.use { it.write(payload, preferred) }
+                session.use { it.write(job, preferred) }
                 return
             } catch (e: IOException) {
                 lastError = e
@@ -476,7 +476,7 @@ class BleTransport(context: Context) {
                 "It may not be a printer."
         )
 
-        fun write(payload: ByteArray, preferred: UUID?) {
+        fun write(job: List<PhomemoM220.Step>, preferred: UUID?) {
             val g = open()
             enableNotifications(g)
             val target = resolveTarget(g, preferred)
@@ -500,30 +500,39 @@ class BleTransport(context: Context) {
             // overhead is still 3 bytes, so a small MTU caps it further.
             val chunkSize = minOf(VENDOR_CHUNK, mtu - 3).coerceAtLeast(MIN_CHUNK)
 
-            var offset = 0
-            while (offset < payload.size) {
-                val n = minOf(chunkSize, payload.size - offset)
-                val ack = CountDownLatch(1)
-                writeAck = ack
+            for (step in job) {
+                // Setup commands go out whole. Splitting a 5-byte ESC 7 across
+                // two writes, or trailing it with the head of the next command,
+                // is not something a parser expecting discrete packets forgives.
+                val stride = if (step.chunked) chunkSize else step.bytes.size
 
-                if (!writeChunk(g, target, payload.copyOfRange(offset, offset + n), writeType)) {
-                    throw PrinterProtocol("The printer would not accept the job")
-                }
-                if (!ack.await(WRITE_MS, TimeUnit.MILLISECONDS)) {
-                    throw PrinterProtocol("Timed out part way through sending the label")
-                }
-                failure?.let { throw PrinterProtocol(it) }
+                var offset = 0
+                while (offset < step.bytes.size) {
+                    val n = minOf(stride, step.bytes.size - offset)
+                    val ack = CountDownLatch(1)
+                    writeAck = ack
 
-                offset += n
-                bytesWritten = offset
-                // Pace every chunk, not just unacknowledged ones. The head
-                // needs the gap to drain; an ATT-level ack only says the radio
-                // took the bytes, not that the printer consumed them.
-                Thread.sleep(CHUNK_DELAY_MS)
+                    if (!writeChunk(g, target, step.bytes.copyOfRange(offset, offset + n), writeType)) {
+                        throw PrinterProtocol("The printer would not accept the job")
+                    }
+                    if (!ack.await(WRITE_MS, TimeUnit.MILLISECONDS)) {
+                        throw PrinterProtocol("Timed out part way through sending the label")
+                    }
+                    failure?.let { throw PrinterProtocol(it) }
+
+                    offset += n
+                    bytesWritten += n
+                    // Pace every chunk, not just unacknowledged ones. The head
+                    // needs the gap to drain; an ATT-level ack only says the
+                    // radio took the bytes, not that the printer consumed them.
+                    if (step.chunked) Thread.sleep(CHUNK_DELAY_MS)
+                }
+
+                // The reference implementation's inter-command pauses. ESC @ in
+                // particular does nothing useful if the next command lands on
+                // top of it.
+                if (step.delayAfterMs > 0) Thread.sleep(step.delayAfterMs)
             }
-
-            // Let the head finish before the connection drops.
-            Thread.sleep(FINISH_MS)
 
             // The job was accepted at the transport layer, which says nothing
             // about whether it printed. If the printer pushed a complaint while

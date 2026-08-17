@@ -134,7 +134,7 @@ class MainActivity : AppCompatActivity() {
 
         val width = numberField("Width (mm)", prefs.labelWidthMm)
         val height = numberField("Height (mm)", prefs.labelHeightMm)
-        val density = numberField("Density (1-15)", prefs.density)
+        val density = numberField("Density (1-8)", prefs.density)
         val head = numberField("Print head width (mm)", prefs.headWidthMm)
         root.addView(width)
         root.addView(height)
@@ -162,6 +162,27 @@ class MainActivity : AppCompatActivity() {
             prefs.density = density.value() ?: prefs.density
             prefs.headWidthMm = head.value() ?: prefs.headWidthMm
         }
+
+        root.addView(
+            body(
+                "Command set: " + when (prefs.protocol) {
+                    PhomemoM220.Protocol.M_SERIES -> "m-series (M220, M221, M260, M200)"
+                    PhomemoM220.Protocol.M110 -> "m110 (M110, M120)"
+                }
+            )
+        )
+        root.addView(Button(this).apply {
+            text = "Switch command set"
+            setOnClickListener {
+                commitFields()
+                prefs.protocol = if (prefs.protocol == PhomemoM220.Protocol.M_SERIES) {
+                    PhomemoM220.Protocol.M110
+                } else {
+                    PhomemoM220.Protocol.M_SERIES
+                }
+                showSettings()
+            }
+        })
 
         root.addView(Button(this).apply {
             text = "Find printer"
@@ -366,10 +387,10 @@ class MainActivity : AppCompatActivity() {
                     )
                     val job = PhomemoM220.buildJob(
                         raster = LabelRenderer.toRaster(bmp),
-                        speed = prefs.speed,
                         density = prefs.density,
-                        mediaType = prefs.mediaType,
-                        headWidthBytes = prefs.headWidthMm
+                        protocol = prefs.protocol,
+                        headWidthBytes = prefs.headWidthMm,
+                        mediaType = prefs.mediaType
                     )
                     transport.send(prefs.printerMac, job, endpoint.characteristic)
                 }
@@ -425,10 +446,10 @@ class MainActivity : AppCompatActivity() {
                     )
                     val job = PhomemoM220.buildJob(
                         raster = LabelRenderer.toRaster(bmp),
-                        speed = prefs.speed,
                         density = prefs.density,
-                        mediaType = prefs.mediaType,
-                        headWidthBytes = prefs.headWidthMm
+                        protocol = prefs.protocol,
+                        headWidthBytes = prefs.headWidthMm,
+                        mediaType = prefs.mediaType
                     )
                     transport.send(prefs.printerMac, job, savedCharacteristic())
                 }
