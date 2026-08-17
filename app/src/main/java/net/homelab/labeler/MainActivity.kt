@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
      * app on its own home screen.
      */
     private fun handleIntent(intent: Intent) {
-        parseShare(intent)?.let(vm::setLabel)
+        parseShare(intent)?.let(vm::updateLabel)
     }
 
     /**

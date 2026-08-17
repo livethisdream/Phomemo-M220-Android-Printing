@@ -358,7 +358,7 @@ fun PrinterScreen(
                     options.forEachIndexed { index, (value, text) ->
                         SegmentedButton(
                             selected = vm.protocol == value,
-                            onClick = { vm.setProtocol(value) },
+                            onClick = { vm.updateProtocol(value) },
                             shape = SegmentedButtonDefaults.itemShape(index, options.size)
                         ) { Text(text) }
                     }
@@ -524,7 +524,7 @@ fun LabelSizeScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: (
                 }
                 Button(
                     onClick = {
-                        vm.setLabelSize(
+                        vm.updateLabelSize(
                             width.toIntOrNull() ?: vm.labelWidthMm,
                             height.toIntOrNull() ?: vm.labelHeightMm
                         )
@@ -553,7 +553,7 @@ fun QualityScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: () 
             SectionCard("Density ${vm.density} of 8") {
                 Slider(
                     value = vm.density.toFloat(),
-                    onValueChange = { vm.setDensity(it.toInt()) },
+                    onValueChange = { vm.updateDensity(it.toInt()) },
                     valueRange = 1f..8f,
                     steps = 6
                 )
@@ -579,7 +579,7 @@ fun QualityScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: () 
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 FilledTonalButton(
-                    onClick = { vm.setHeadWidth(head.toIntOrNull() ?: vm.headWidthMm) },
+                    onClick = { vm.updateHeadWidth(head.toIntOrNull() ?: vm.headWidthMm) },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Apply") }
             }

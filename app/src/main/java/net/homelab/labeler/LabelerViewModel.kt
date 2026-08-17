@@ -73,12 +73,12 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- Label composition ----------------------------------------------------
 
-    fun setLabel(value: LabelRenderer.Label?) {
+    fun updateLabel(value: LabelRenderer.Label?) {
         label = value
         rerender()
     }
 
-    fun setLabelSize(widthMm: Int, heightMm: Int) {
+    fun updateLabelSize(widthMm: Int, heightMm: Int) {
         labelWidthMm = widthMm.coerceIn(10, 200)
         labelHeightMm = heightMm.coerceIn(10, 200)
         prefs.labelWidthMm = labelWidthMm
@@ -86,17 +86,17 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         rerender()
     }
 
-    fun setDensity(value: Int) {
+    fun updateDensity(value: Int) {
         density = value.coerceIn(1, 8)
         prefs.density = density
     }
 
-    fun setHeadWidth(value: Int) {
+    fun updateHeadWidth(value: Int) {
         headWidthMm = value.coerceIn(16, 104)
         prefs.headWidthMm = headWidthMm
     }
 
-    fun setProtocol(value: PhomemoM220.Protocol) {
+    fun updateProtocol(value: PhomemoM220.Protocol) {
         protocol = value
         prefs.protocol = value
     }
