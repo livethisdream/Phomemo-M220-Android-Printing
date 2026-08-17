@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Compose paints everything from Theme.kt; this exists only so the window
+      has a sane background between launch and first frame. Matching it to the
+      Compose surface colour is what stops the white flash on a dark device.
+    -->
+    <style name="Theme.Labeler" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+</resources>
