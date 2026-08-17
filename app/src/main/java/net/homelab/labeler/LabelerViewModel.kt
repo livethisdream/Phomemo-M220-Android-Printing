@@ -37,24 +37,29 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- The label being composed ---------------------------------------------
 
-    /**
-     * What the label is made of. A shared URL becomes a generated QR; a shared
-     * image is printed as-is. They render differently enough to be separate
-     * cases rather than one type with optional fields.
-     */
-    sealed interface Source {
-        data class Qr(val label: LabelRenderer.Label) : Source
-        data class Picture(val bitmap: Bitmap) : Source
-    }
-
-    var source by mutableStateOf<Source?>(null)
+    /** The label as positioned elements. Empty means nothing to print. */
+    var doc by mutableStateOf(LabelDesign.Doc())
         private set
 
-    var imageMode by mutableStateOf(ImageLabel.Mode.THRESHOLD)
+    var selectedId by mutableStateOf<Long?>(null)
+        private set
+
+    /** Alignment lines the current drag locked onto, for the editor to draw. */
+    var guides by mutableStateOf<List<Snapping.Guide>>(emptyList())
+        private set
+
+    var snapEnabled by mutableStateOf(true)
         private set
 
     var preview by mutableStateOf<Bitmap?>(null)
         private set
+
+    private val undoStack = ArrayDeque<LabelDesign.Doc>()
+
+    var canUndo by mutableStateOf(false)
+        private set
+
+    val selected: LabelDesign.Element? get() = doc.find(selectedId)
 
     // --- Settings, mirrored out of Prefs so Compose can observe them -----------
 
@@ -88,22 +93,133 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- Label composition ----------------------------------------------------
 
+    /**
+     * A share replaces the canvas rather than adding to it. Dropping a QR onto
+     * whatever happened to be there last would make share-to-print
+     * unpredictable, which is the one flow that has to stay a reflex.
+     */
     fun updateLabel(value: LabelRenderer.Label?) {
-        source = value?.let { Source.Qr(it) }
-        rerender()
+        if (value == null) return
+        replaceDoc(LabelDesign.fromLabel(value, labelWidthMm, labelHeightMm))
     }
 
     fun updateImage(bitmap: Bitmap) {
-        source = Source.Picture(bitmap)
+        replaceDoc(
+            LabelDesign.fromImage(bitmap, labelWidthMm, labelHeightMm, ImageLabel.Mode.THRESHOLD)
+        )
+    }
+
+    private fun replaceDoc(value: LabelDesign.Doc) {
+        undoStack.clear()
+        canUndo = false
+        doc = value
+        selectedId = null
         rerender()
     }
 
-    fun updateImageMode(mode: ImageLabel.Mode) {
-        imageMode = mode
+    // --- Editing --------------------------------------------------------------
+
+    fun select(id: Long?) {
+        selectedId = id
+    }
+
+    fun toggleSnap() {
+        snapEnabled = !snapEnabled
+    }
+
+    fun setGuides(value: List<Snapping.Guide>) {
+        guides = value
+    }
+
+    /** Records the document for undo. Call before a discrete edit, not per frame. */
+    fun checkpoint() {
+        undoStack.addLast(doc)
+        while (undoStack.size > UNDO_DEPTH) undoStack.removeFirst()
+        canUndo = true
+    }
+
+    fun undo() {
+        val previous = undoStack.removeLastOrNull() ?: return
+        doc = previous
+        canUndo = undoStack.isNotEmpty()
+        if (doc.find(selectedId) == null) selectedId = null
+        rerender()
+    }
+
+    /** Applies an in-progress edit without touching the undo stack. */
+    fun applyElement(element: LabelDesign.Element) {
+        doc = doc.replace(element)
+        rerender()
+    }
+
+    fun addText() {
+        checkpoint()
+        val element = LabelDesign.Element.Text(
+            id = LabelDesign.newId(),
+            x = labelWidthMm * 0.15f,
+            y = labelHeightMm * 0.4f,
+            w = labelWidthMm * 0.7f,
+            h = 6f,
+            text = "Text"
+        )
+        doc = doc.add(element)
+        selectedId = element.id
+        rerender()
+    }
+
+    fun addQr(content: String = "http://example.com") {
+        checkpoint()
+        val size = minOf(labelWidthMm, labelHeightMm) * 0.5f
+        val element = LabelDesign.Element.Qr(
+            id = LabelDesign.newId(),
+            x = (labelWidthMm - size) / 2f,
+            y = (labelHeightMm - size) / 2f,
+            w = size,
+            h = size,
+            content = content
+        )
+        doc = doc.add(element)
+        selectedId = element.id
+        rerender()
+    }
+
+    fun addPicture(bitmap: Bitmap) {
+        checkpoint()
+        val box = minOf(labelWidthMm, labelHeightMm) * 0.6f
+        val scale = minOf(box / bitmap.width, box / bitmap.height)
+        val w = bitmap.width * scale
+        val h = bitmap.height * scale
+        val element = LabelDesign.Element.Picture(
+            id = LabelDesign.newId(),
+            x = (labelWidthMm - w) / 2f,
+            y = (labelHeightMm - h) / 2f,
+            w = w,
+            h = h,
+            bitmap = bitmap
+        )
+        doc = doc.add(element)
+        selectedId = element.id
+        rerender()
+    }
+
+    fun deleteSelected() {
+        val id = selectedId ?: return
+        checkpoint()
+        doc = doc.remove(id)
+        selectedId = null
+        rerender()
+    }
+
+    fun clearAll() {
+        checkpoint()
+        doc = LabelDesign.Doc()
+        selectedId = null
         rerender()
     }
 
     fun updateLabelSize(widthMm: Int, heightMm: Int) {
+        // Elements keep their millimetre positions, so a size change moves the
+        // label edges around them rather than rescaling the design.
         labelWidthMm = widthMm.coerceIn(10, 200)
         labelHeightMm = heightMm.coerceIn(10, 200)
         prefs.labelWidthMm = labelWidthMm
@@ -148,12 +264,9 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** The single place a label becomes pixels, shared by preview and print. */
-    private fun renderCurrent(): Bitmap? = when (val current = source) {
-        null -> null
-        is Source.Qr -> LabelRenderer.render(current.label, labelWidthMm, labelHeightMm)
-        is Source.Picture ->
-            ImageLabel.render(current.bitmap, labelWidthMm, labelHeightMm, imageMode)
-    }
+    private fun renderCurrent(): Bitmap? =
+        if (doc.elements.isEmpty()) null
+        else DesignRenderer.render(doc, labelWidthMm, labelHeightMm)
 
     // --- Printer work ---------------------------------------------------------
 
@@ -196,7 +309,7 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun print() {
-        if (source == null) return
+        if (doc.elements.isEmpty()) return
         background("Printing") {
             val bitmap = renderCurrent() ?: throw IllegalStateException("Nothing to print")
             send(bitmap, savedCharacteristic())
@@ -242,6 +355,8 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private companion object {
+        const val UNDO_DEPTH = 40
+
         val TEST_LABEL = LabelRenderer.Label(
             url = "http://test.local/a/000-001",
             title = "Test label",

@@ -94,6 +94,31 @@ object ImageLabel {
         }
     }
 
+    /**
+     * Scales into an exact dot box and flattens to 1-bit. Used by the design
+     * renderer, where the element already has a size and the caller decides
+     * placement, so there is no label margin or centring to apply.
+     */
+    fun renderInto(source: Bitmap, widthDots: Int, heightDots: Int, mode: Mode): Bitmap {
+        val out = Bitmap.createBitmap(
+            widthDots.coerceAtLeast(1),
+            heightDots.coerceAtLeast(1),
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = Canvas(out)
+        canvas.drawColor(Color.WHITE)
+        canvas.drawBitmap(
+            source,
+            null,
+            Rect(0, 0, out.width, out.height),
+            Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+        )
+        return when (mode) {
+            Mode.THRESHOLD -> threshold(out)
+            Mode.DITHER -> dither(out)
+        }
+    }
+
     private fun luma(pixel: Int): Int =
         ((pixel shr 16 and 0xFF) * 299 + (pixel shr 8 and 0xFF) * 587 + (pixel and 0xFF) * 114) / 1000
 

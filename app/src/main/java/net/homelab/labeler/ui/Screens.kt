@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -69,7 +70,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import net.homelab.labeler.BleTransport
-import net.homelab.labeler.ImageLabel
 import net.homelab.labeler.LabelSizes
 import net.homelab.labeler.LabelerViewModel
 import net.homelab.labeler.PhomemoM220
@@ -171,7 +171,8 @@ private fun SectionCard(
 fun HomeScreen(
     vm: LabelerViewModel,
     snackbar: SnackbarHostState,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    onEdit: () -> Unit
 ) {
     LabelerScaffold(
         title = "Label Printer",
@@ -211,34 +212,6 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Only meaningful for a shared image; a generated QR is already
-                // pure black and white and has nothing to convert.
-                if (vm.source is LabelerViewModel.Source.Picture) {
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        val modes = listOf(
-                            ImageLabel.Mode.THRESHOLD to "Sharp",
-                            ImageLabel.Mode.DITHER to "Photo"
-                        )
-                        modes.forEachIndexed { index, (value, text) ->
-                            SegmentedButton(
-                                selected = vm.imageMode == value,
-                                onClick = { vm.updateImageMode(value) },
-                                shape = SegmentedButtonDefaults.itemShape(index, modes.size)
-                            ) { Text(text) }
-                        }
-                    }
-                    Text(
-                        if (vm.imageMode == ImageLabel.Mode.THRESHOLD) {
-                            "Hard black and white. Right for QR codes, barcodes and line art."
-                        } else {
-                            "Dithered to fake grey. Right for photographs, wrong for QR codes."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
             } else {
                 EmptyState()
             }
@@ -246,14 +219,24 @@ fun HomeScreen(
             val job = vm.job
             if (job is LabelerViewModel.Job.Busy) BusyRow(job.what)
 
-            Button(
-                onClick = { if (bitmap != null) vm.print() else vm.printTest() },
-                enabled = job !is LabelerViewModel.Job.Busy && vm.printerMac != null,
-                modifier = Modifier.fillMaxWidth().height(56.dp)
-            ) {
-                Icon(Icons.Filled.Print, contentDescription = null)
-                Spacer(Modifier.size(8.dp))
-                Text(if (bitmap != null) "Print label" else "Print test label")
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FilledTonalButton(
+                    onClick = onEdit,
+                    modifier = Modifier.weight(1f).height(56.dp)
+                ) {
+                    Icon(Icons.Filled.Edit, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text("Edit")
+                }
+                Button(
+                    onClick = { if (bitmap != null) vm.print() else vm.printTest() },
+                    enabled = job !is LabelerViewModel.Job.Busy && vm.printerMac != null,
+                    modifier = Modifier.weight(1f).height(56.dp)
+                ) {
+                    Icon(Icons.Filled.Print, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(if (bitmap != null) "Print" else "Test")
+                }
             }
 
             if (vm.printerMac == null) {
