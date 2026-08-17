@@ -37,6 +37,16 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_H, 30)
         set(v) = sp.edit().putInt(KEY_H, v).apply()
 
+    /**
+     * Width of the print head in mm, which at 8 dots/mm is also the number of
+     * bytes every raster line must contain. 72 for an M220, 48 for M110-class
+     * hardware. Getting this wrong desynchronises the raster and the printer
+     * rejects the job, so it is adjustable rather than assumed.
+     */
+    var headWidthMm: Int
+        get() = sp.getInt(KEY_HEAD, PhomemoM220.DEFAULT_HEAD_WIDTH_BYTES)
+        set(v) = sp.edit().putInt(KEY_HEAD, v.coerceIn(16, 104)).apply()
+
     /** 0x01 (slow) - 0x05 (fast). Slower generally means crisper QR modules. */
     var speed: Int
         get() = sp.getInt(KEY_SPEED, 3)
@@ -56,6 +66,7 @@ class Prefs(context: Context) {
         const val KEY_MAC = "printer_mac"
         const val KEY_NAME = "printer_name"
         const val KEY_CHARACTERISTIC = "characteristic_uuid"
+        const val KEY_HEAD = "head_width_mm"
         const val KEY_W = "label_w_mm"
         const val KEY_H = "label_h_mm"
         const val KEY_SPEED = "speed"

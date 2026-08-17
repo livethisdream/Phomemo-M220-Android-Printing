@@ -135,9 +135,12 @@ class MainActivity : AppCompatActivity() {
         val width = numberField("Width (mm)", prefs.labelWidthMm)
         val height = numberField("Height (mm)", prefs.labelHeightMm)
         val density = numberField("Density (1-15)", prefs.density)
+        val head = numberField("Print head width (mm)", prefs.headWidthMm)
         root.addView(width)
         root.addView(height)
         root.addView(density)
+        root.addView(body("Head width is the printer's, not the label's: 72 for an M220, 48 for M110-class hardware. Every raster line is padded to it."))
+        root.addView(head)
 
         // No pairing step: BLE needs no bond, so the printer is identified by
         // the address the user picked out of a scan rather than by a bond the
@@ -157,6 +160,7 @@ class MainActivity : AppCompatActivity() {
             prefs.labelWidthMm = width.value() ?: prefs.labelWidthMm
             prefs.labelHeightMm = height.value() ?: prefs.labelHeightMm
             prefs.density = density.value() ?: prefs.density
+            prefs.headWidthMm = head.value() ?: prefs.headWidthMm
         }
 
         root.addView(Button(this).apply {
@@ -364,7 +368,8 @@ class MainActivity : AppCompatActivity() {
                         raster = LabelRenderer.toRaster(bmp),
                         speed = prefs.speed,
                         density = prefs.density,
-                        mediaType = prefs.mediaType
+                        mediaType = prefs.mediaType,
+                        headWidthBytes = prefs.headWidthMm
                     )
                     transport.send(prefs.printerMac, job, endpoint.characteristic)
                 }
@@ -422,7 +427,8 @@ class MainActivity : AppCompatActivity() {
                         raster = LabelRenderer.toRaster(bmp),
                         speed = prefs.speed,
                         density = prefs.density,
-                        mediaType = prefs.mediaType
+                        mediaType = prefs.mediaType,
+                        headWidthBytes = prefs.headWidthMm
                     )
                     transport.send(prefs.printerMac, job, savedCharacteristic())
                 }
