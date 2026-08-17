@@ -19,7 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Image
@@ -127,10 +126,6 @@ private fun EditorCanvas(vm: LabelerViewModel) {
     // Drag bookkeeping. Held here rather than in the view model because it is
     // per-gesture scratch, not document state.
     var mode by remember { mutableStateOf(DragMode.NONE) }
-    var startX by remember { mutableStateOf(0f) }
-    var startY by remember { mutableStateOf(0f) }
-    var startW by remember { mutableStateOf(0f) }
-    var startH by remember { mutableStateOf(0f) }
 
     Card(
         Modifier.fillMaxWidth(),
@@ -179,19 +174,15 @@ private fun EditorCanvas(vm: LabelerViewModel) {
                                     kotlin.math.abs(offset.y - cornerY) < handlePx
 
                             mode = if (onHandle) DragMode.RESIZE else DragMode.MOVE
-                            startX = element.x
-                            startY = element.y
-                            startW = element.w
-                            startH = element.h
                             vm.checkpoint()
                         },
                         onDragEnd = {
                             mode = DragMode.NONE
-                            vm.setGuides(emptyList())
+                            vm.updateGuides(emptyList())
                         },
                         onDragCancel = {
                             mode = DragMode.NONE
-                            vm.setGuides(emptyList())
+                            vm.updateGuides(emptyList())
                         }
                     ) { change, _ ->
                         change.consume()
@@ -211,7 +202,7 @@ private fun EditorCanvas(vm: LabelerViewModel) {
                                     raw.first, raw.second, element.w, element.h,
                                     others, vm.labelWidthMm, vm.labelHeightMm, vm.snapEnabled
                                 )
-                                vm.setGuides(snapped.guides)
+                                vm.updateGuides(snapped.guides)
                                 vm.applyElement(element.moved(snapped.x, snapped.y))
                             }
 

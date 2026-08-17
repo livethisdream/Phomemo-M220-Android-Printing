@@ -127,7 +127,7 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         snapEnabled = !snapEnabled
     }
 
-    fun setGuides(value: List<Snapping.Guide>) {
+    fun updateGuides(value: List<Snapping.Guide>) {
         guides = value
     }
 
