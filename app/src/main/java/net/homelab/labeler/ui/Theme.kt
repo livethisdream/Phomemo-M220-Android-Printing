@@ -12,7 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 /**
- * Material 3 with Material You dynamic colour.
+ * Material 3 with Material You dynamic color.
  *
  * On Android 12+ the palette is derived from the user's wallpaper, which is
  * what makes an app look native on a Pixel rather than merely tidy. The static

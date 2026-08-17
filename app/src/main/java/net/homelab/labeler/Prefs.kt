@@ -3,7 +3,7 @@ package net.homelab.labeler
 import android.content.Context
 
 /**
- * Label geometry is stored in millimetres, not pixels. The M220 head is 72 mm
+ * Label geometry is stored in millimeters, not pixels. The M220 head is 72 mm
  * (576 dots) but your label stock is almost certainly narrower - 50x30 and
  * 40x30 are the common rolls. Rendering wider than the stock overflows it.
  */

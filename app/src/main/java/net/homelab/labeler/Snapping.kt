@@ -7,13 +7,13 @@ import kotlin.math.roundToInt
  * Alignment snapping for the editor.
  *
  * A 50 x 30 mm label is 400 x 240 dots. Displayed on a phone that is a few
- * hundred screen pixels, so a fingertip covers something like a millimetre of
+ * hundred screen pixels, so a fingertip covers something like a millimeter of
  * label - far coarser than the placement people expect. Snapping is what makes
  * dragging at this scale produce deliberate results rather than approximate
  * ones.
  *
- * Candidates are the label's own edges and centre lines, plus the edges and
- * centres of every other element, plus a coarse grid as a fallback.
+ * Candidates are the label's own edges and center lines, plus the edges and
+ * centers of every other element, plus a coarse grid as a fallback.
  */
 object Snapping {
 
@@ -53,7 +53,7 @@ object Snapping {
         }
 
         // The moving element offers three lines of its own: leading edge,
-        // centre, trailing edge. Each can land on any candidate.
+        // center, trailing edge. Each can land on any candidate.
         val (snappedX, guideX) = axis(x, w, verticals)
         val (snappedY, guideY) = axis(y, h, horizontals)
 
@@ -71,7 +71,7 @@ object Snapping {
         var bestLine: Float? = null
 
         for (candidate in candidates) {
-            // leading edge, centre, trailing edge of the moving element
+            // leading edge, center, trailing edge of the moving element
             for ((offset, line) in listOf(
                 0f to candidate,
                 size / 2f to candidate,

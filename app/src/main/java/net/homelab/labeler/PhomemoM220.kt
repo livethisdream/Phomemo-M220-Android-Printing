@@ -108,14 +108,14 @@ object PhomemoM220 {
     )
 
     /**
-     * Widens each line to the head width, centring the content.
+     * Widens each line to the head width, centering the content.
      *
      * The printer reads exactly head-width bytes per line. A short line is not
      * a narrow label - it desynchronises the block, and every subsequent line
      * is assembled from the wrong bytes.
      *
-     * Centred because that is what the reference uses for any device it does
-     * not recognise, which includes units advertising under the Q... scheme.
+     * Centered because that is what the reference uses for any device it does
+     * not recognize, which includes units advertising under the Q... scheme.
      */
     private fun padToHead(
         raster: LabelRenderer.Raster,

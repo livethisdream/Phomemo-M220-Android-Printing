@@ -5,8 +5,8 @@ import android.graphics.Bitmap
 /**
  * A label as a list of positioned elements.
  *
- * Coordinates are millimetres from the top-left of the label, not dots and not
- * screen pixels. Millimetres survive a change of label size, a change of print
+ * Coordinates are millimeters from the top-left of the label, not dots and not
+ * screen pixels. Millimeters survive a change of label size, a change of print
  * head, and the difference between the editor's scale and the printer's 8
  * dots/mm - all three of which would otherwise need their own conversion at
  * every call site.
@@ -34,7 +34,7 @@ object LabelDesign {
             val bold: Boolean = false,
             val monospace: Boolean = false,
             val align: Align = Align.LEFT,
-            /** White on black. The only "colour" a 1-bit head can offer. */
+            /** White on black. The only "color" a 1-bit head can offer. */
             val invert: Boolean = false
         ) : Element() {
             override fun moved(x: Float, y: Float) = copy(x = x, y = y)

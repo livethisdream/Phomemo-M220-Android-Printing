@@ -220,7 +220,7 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun updateLabelSize(widthMm: Int, heightMm: Int) {
-        // Elements keep their millimetre positions, so a size change moves the
+        // Elements keep their millimeter positions, so a size change moves the
         // label edges around them rather than rescaling the design.
         labelWidthMm = widthMm.coerceIn(10, 200)
         labelHeightMm = heightMm.coerceIn(10, 200)
@@ -252,7 +252,7 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         prefs.headWidthMm = headWidthMm
     }
 
-    /** Taken in millimetres because that is how label stock is measured. */
+    /** Taken in millimeters because that is how label stock is measured. */
     fun updateFeedMm(mm: Float) {
         feedDots = (mm * LabelRenderer.DOTS_PER_MM).toInt().coerceIn(0, 240)
         prefs.feedDots = feedDots

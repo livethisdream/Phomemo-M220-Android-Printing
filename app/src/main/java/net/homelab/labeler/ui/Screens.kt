@@ -586,21 +586,18 @@ fun LabelSizeScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: (
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
-                        onClick = {
-                            vm.updateLabelSize(
-                                width.toIntOrNull() ?: vm.labelWidthMm,
-                                height.toIntOrNull() ?: vm.labelHeightMm
-                            )
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Apply") }
-                    FilledTonalButton(
-                        onClick = { vm.saveCurrentSize() },
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Keep this size") }
-                }
+                // Applying a size not in any list keeps it automatically, so
+                // there is nothing extra to press to make it stick.
+                Button(
+                    onClick = {
+                        vm.updateLabelSize(
+                            width.toIntOrNull() ?: vm.labelWidthMm,
+                            height.toIntOrNull() ?: vm.labelHeightMm
+                        )
+                        vm.saveCurrentSize()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Apply") }
             }
         }
     }
@@ -683,7 +680,7 @@ fun QualityScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: () 
                 OutlinedTextField(
                     value = head,
                     onValueChange = { head = it.filter(Char::isDigit) },
-                    label = { Text("Millimetres") },
+                    label = { Text("Millimeters") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(

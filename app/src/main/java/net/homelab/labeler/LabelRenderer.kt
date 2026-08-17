@@ -21,7 +21,7 @@ import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
  */
 object LabelRenderer {
 
-    /** 203.2 dpi works out to exactly 8 dots per millimetre. */
+    /** 203.2 dpi works out to exactly 8 dots per millimeter. */
     const val DOTS_PER_MM = 8
 
     /** Below this a QR has too few dots per module to scan reliably. */

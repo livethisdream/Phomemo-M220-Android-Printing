@@ -14,14 +14,14 @@ import kotlin.math.roundToInt
  *
  * The two conversion modes are not stylistic preferences, they solve different
  * problems. A photograph has continuous tone that a 1-bit head cannot
- * reproduce, so error diffusion trades spatial resolution for apparent grey. A
+ * reproduce, so error diffusion trades spatial resolution for apparent gray. A
  * QR code or line drawing is already pure black and white, and diffusing error
  * across it destroys the very module edges a scanner looks for.
  */
 object ImageLabel {
 
     enum class Mode {
-        /** Hard cut at mid grey. Correct for QR codes, barcodes, line art. */
+        /** Hard cut at mid gray. Correct for QR codes, barcodes, line art. */
         THRESHOLD,
 
         /** Floyd-Steinberg error diffusion. Correct for photographs. */
@@ -54,7 +54,7 @@ object ImageLabel {
     }
 
     /**
-     * Fits [source] inside the label, centred on white, and reduces it to pure
+     * Fits [source] inside the label, centered on white, and reduces it to pure
      * black and white so the raster packer has nothing left to decide.
      */
     fun render(source: Bitmap, widthMm: Int, heightMm: Int, mode: Mode): Bitmap {
@@ -97,7 +97,7 @@ object ImageLabel {
     /**
      * Scales into an exact dot box and flattens to 1-bit. Used by the design
      * renderer, where the element already has a size and the caller decides
-     * placement, so there is no label margin or centring to apply.
+     * placement, so there is no label margin or centering to apply.
      */
     fun renderInto(source: Bitmap, widthDots: Int, heightDots: Int, mode: Mode): Bitmap {
         val out = Bitmap.createBitmap(
@@ -137,7 +137,7 @@ object ImageLabel {
     }
 
     /**
-     * Floyd-Steinberg: push each pixel's rounding error onto neighbours that
+     * Floyd-Steinberg: push each pixel's rounding error onto neighbors that
      * have not been decided yet, so large flat areas average out to the right
      * tone instead of banding.
      */
@@ -148,27 +148,27 @@ object ImageLabel {
         bmp.getPixels(pixels, 0, w, 0, 0, w, h)
 
         // Error accumulates well outside 0..255, so carry it as float.
-        val grey = FloatArray(w * h) { luma(pixels[it]).toFloat() }
+        val gray = FloatArray(w * h) { luma(pixels[it]).toFloat() }
 
         for (y in 0 until h) {
             for (x in 0 until w) {
                 val i = y * w + x
-                val old = grey[i]
+                val old = gray[i]
                 val new = if (old < 128f) 0f else 255f
-                grey[i] = new
+                gray[i] = new
                 val err = old - new
 
-                if (x + 1 < w) grey[i + 1] += err * 7f / 16f
+                if (x + 1 < w) gray[i + 1] += err * 7f / 16f
                 if (y + 1 < h) {
-                    if (x > 0) grey[i + w - 1] += err * 3f / 16f
-                    grey[i + w] += err * 5f / 16f
-                    if (x + 1 < w) grey[i + w + 1] += err * 1f / 16f
+                    if (x > 0) gray[i + w - 1] += err * 3f / 16f
+                    gray[i + w] += err * 5f / 16f
+                    if (x + 1 < w) gray[i + w + 1] += err * 1f / 16f
                 }
             }
         }
 
         for (i in pixels.indices) {
-            pixels[i] = if (grey[i] < 128f) Color.BLACK else Color.WHITE
+            pixels[i] = if (gray[i] < 128f) Color.BLACK else Color.WHITE
         }
         bmp.setPixels(pixels, 0, w, 0, 0, w, h)
         return bmp

@@ -9,7 +9,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,8 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.QrCode
-import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,12 +52,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import net.homelab.labeler.ImageLabel
 import net.homelab.labeler.LabelDesign
 import net.homelab.labeler.LabelerViewModel
 import net.homelab.labeler.Snapping
+import kotlin.math.abs
 
 /** Hit area for the resize corner, in screen dp rather than label mm. */
 private val HANDLE_DP = 28.dp
@@ -137,44 +139,55 @@ private fun EditorCanvas(vm: LabelerViewModel) {
                 .fillMaxWidth()
                 .aspectRatio(labelW / labelH)
                 .background(Color.White)
-                .pointerInput(labelW, labelH, vm.doc, vm.selectedId, vm.snapEnabled) {
-                    canvasW = size.width.toFloat()
-                    canvasH = size.height.toFloat()
-
+                .onSizeChanged {
+                    canvasW = it.width.toFloat()
+                    canvasH = it.height.toFloat()
+                }
+                /*
+                 * Keyed on Unit deliberately.
+                 *
+                 * These were previously keyed on vm.doc, which changes on every
+                 * frame of a drag - so Compose tore down and rebuilt the gesture
+                 * detector mid-gesture, cancelling the drag. That is why moving
+                 * an element only worked in short bursts with a lift between
+                 * each one. Current state is read inside the callbacks instead,
+                 * where it is always fresh without restarting anything.
+                 */
+                .pointerInput(Unit) {
                     detectTapGestures { offset ->
-                        val mmX = offset.x / (size.width / labelW)
-                        val mmY = offset.y / (size.height / labelH)
+                        val perMmX = size.width / vm.labelWidthMm.toFloat()
+                        val perMmY = size.height / vm.labelHeightMm.toFloat()
                         // Topmost first: later elements draw over earlier ones,
                         // so they should also win the tap.
-                        vm.select(
-                            vm.doc.elements.lastOrNull {
-                                mmX >= it.x && mmX <= it.x + it.w &&
-                                    mmY >= it.y && mmY <= it.y + it.h
-                            }?.id
-                        )
+                        vm.select(hitTest(vm, offset.x / perMmX, offset.y / perMmY))
                     }
                 }
-                .pointerInput(labelW, labelH, vm.doc, vm.selectedId, vm.snapEnabled) {
-                    canvasW = size.width.toFloat()
-                    canvasH = size.height.toFloat()
-                    val perMmX = size.width / labelW
-                    val perMmY = size.height / labelH
-
+                .pointerInput(Unit) {
                     detectDragGestures(
                         onDragStart = { offset ->
-                            val element = vm.selected
-                            if (element == null) {
-                                mode = DragMode.NONE
-                                return@detectDragGestures
-                            }
-                            val cornerX = (element.x + element.w) * perMmX
-                            val cornerY = (element.y + element.h) * perMmY
-                            val onHandle =
-                                kotlin.math.abs(offset.x - cornerX) < handlePx &&
-                                    kotlin.math.abs(offset.y - cornerY) < handlePx
+                            val perMmX = size.width / vm.labelWidthMm.toFloat()
+                            val perMmY = size.height / vm.labelHeightMm.toFloat()
+                            val current = vm.selected
 
-                            mode = if (onHandle) DragMode.RESIZE else DragMode.MOVE
-                            vm.checkpoint()
+                            val onHandle = current != null &&
+                                abs(offset.x - (current.x + current.w) * perMmX) < handlePx &&
+                                abs(offset.y - (current.y + current.h) * perMmY) < handlePx
+
+                            if (onHandle) {
+                                mode = DragMode.RESIZE
+                                vm.checkpoint()
+                            } else {
+                                // Grab whatever is under the finger, so dragging
+                                // works without having to tap to select first.
+                                val hit = hitTest(vm, offset.x / perMmX, offset.y / perMmY)
+                                if (hit == null) {
+                                    mode = DragMode.NONE
+                                } else {
+                                    vm.select(hit)
+                                    mode = DragMode.MOVE
+                                    vm.checkpoint()
+                                }
+                            }
                         },
                         onDragEnd = {
                             mode = DragMode.NONE
@@ -184,11 +197,15 @@ private fun EditorCanvas(vm: LabelerViewModel) {
                             mode = DragMode.NONE
                             vm.updateGuides(emptyList())
                         }
-                    ) { change, _ ->
+                    ) { change, dragAmount ->
                         change.consume()
+                        if (mode == DragMode.NONE) return@detectDragGestures
                         val element = vm.selected ?: return@detectDragGestures
-                        val dxMm = (change.position.x - change.previousPosition.x) / perMmX
-                        val dyMm = (change.position.y - change.previousPosition.y) / perMmY
+
+                        val perMmX = size.width / vm.labelWidthMm.toFloat()
+                        val perMmY = size.height / vm.labelHeightMm.toFloat()
+                        val dxMm = dragAmount.x / perMmX
+                        val dyMm = dragAmount.y / perMmY
 
                         when (mode) {
                             DragMode.MOVE -> {
@@ -297,19 +314,24 @@ private fun Overlay(
 
 @Composable
 private fun AddRow(vm: LabelerViewModel, onPickImage: () -> Unit) {
+    // Text only. An icon plus a label does not fit three across on a phone,
+    // and "Image" was the one that overflowed.
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        FilledTonalButton(onClick = { vm.addText() }, modifier = Modifier.weight(1f)) {
-            Icon(Icons.Filled.TextFields, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(" Text")
-        }
-        FilledTonalButton(onClick = { vm.addQr() }, modifier = Modifier.weight(1f)) {
-            Icon(Icons.Filled.QrCode, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(" QR")
-        }
-        FilledTonalButton(onClick = onPickImage, modifier = Modifier.weight(1f)) {
-            Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(" Image")
-        }
+        FilledTonalButton(
+            onClick = { vm.addText() },
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+            modifier = Modifier.weight(1f)
+        ) { Text("Text", maxLines = 1) }
+        FilledTonalButton(
+            onClick = { vm.addQr() },
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+            modifier = Modifier.weight(1f)
+        ) { Text("QR code", maxLines = 1) }
+        FilledTonalButton(
+            onClick = onPickImage,
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+            modifier = Modifier.weight(1f)
+        ) { Text("Image", maxLines = 1) }
     }
 }
 
@@ -343,7 +365,8 @@ private fun Properties(vm: LabelerViewModel) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(" Delete")
+                Spacer(Modifier.size(8.dp))
+                Text("Delete", maxLines = 1)
             }
         }
     }
@@ -368,7 +391,7 @@ private fun TextProps(vm: LabelerViewModel, element: LabelDesign.Element.Text) {
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
         val aligns = listOf(
             LabelDesign.Align.LEFT to "Left",
-            LabelDesign.Align.CENTER to "Centre",
+            LabelDesign.Align.CENTER to "Center",
             LabelDesign.Align.RIGHT to "Right"
         )
         aligns.forEachIndexed { index, (value, text) ->
@@ -404,7 +427,7 @@ private fun TextProps(vm: LabelerViewModel, element: LabelDesign.Element.Text) {
         Column {
             Text("White on black", style = MaterialTheme.typography.bodyMedium)
             Text(
-                "The only colour a thermal head has.",
+                "The only color a thermal head has.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -447,9 +470,15 @@ private fun PictureProps(vm: LabelerViewModel, element: LabelDesign.Element.Pict
         if (element.mode == ImageLabel.Mode.THRESHOLD) {
             "Hard black and white. Right for QR codes, barcodes and line art."
         } else {
-            "Dithered to fake grey. Right for photographs, wrong for QR codes."
+            "Dithered to fake gray. Right for photographs, wrong for QR codes."
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
 }
+
+/** Topmost element containing the point, in label millimeters. */
+private fun hitTest(vm: LabelerViewModel, mmX: Float, mmY: Float): Long? =
+    vm.doc.elements.lastOrNull {
+        mmX >= it.x && mmX <= it.x + it.w && mmY >= it.y && mmY <= it.y + it.h
+    }?.id
