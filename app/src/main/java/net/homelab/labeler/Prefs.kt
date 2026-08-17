@@ -100,6 +100,27 @@ class Prefs(context: Context) {
         get() = sp.getInt(KEY_FEED, PhomemoM220.DEFAULT_FEED_DOTS)
         set(v) = sp.edit().putInt(KEY_FEED, v.coerceIn(0, 240)).apply()
 
+    /**
+     * How the label is advanced after printing. Adjustable because ESC J is
+     * documented in the reference as being ignored on some units, and there is
+     * no way to detect that from this side - the printer reports success either
+     * way and simply does not move the paper.
+     */
+    var feedMode: PhomemoM220.FeedMode
+        get() = when (sp.getString(KEY_FEED_MODE, null)) {
+            "blank" -> PhomemoM220.FeedMode.BLANK_ROWS
+            "gap" -> PhomemoM220.FeedMode.GAP
+            else -> PhomemoM220.FeedMode.COMMAND
+        }
+        set(v) = sp.edit().putString(
+            KEY_FEED_MODE,
+            when (v) {
+                PhomemoM220.FeedMode.BLANK_ROWS -> "blank"
+                PhomemoM220.FeedMode.GAP -> "gap"
+                PhomemoM220.FeedMode.COMMAND -> "command"
+            }
+        ).apply()
+
     /** See PhomemoM220.MEDIA_* constants. */
     var mediaType: Int
         get() = sp.getInt(KEY_MEDIA, PhomemoM220.MEDIA_LABEL_WITH_GAPS)
@@ -118,5 +139,6 @@ class Prefs(context: Context) {
         const val KEY_MEDIA = "media_type"
         const val KEY_CUSTOM_SIZES = "custom_sizes"
         const val KEY_FEED = "feed_dots"
+        const val KEY_FEED_MODE = "feed_mode"
     }
 }

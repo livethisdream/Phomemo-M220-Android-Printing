@@ -54,25 +54,63 @@ object PhomemoM220 {
     /** ESC 7 heat time per density step 1-8. Higher is darker. */
     private val HEAT_TIMES = intArrayOf(40, 60, 80, 100, 120, 140, 160, 200)
 
+    /**
+     * How the label is advanced once printed.
+     *
+     * Three methods because the obvious one is not reliable on this hardware.
+     * The reference implementation notes, in its D-series path, that "ESC J
+     * feed is ignored in continuous mode" and works around it by padding the
+     * image - so a printer quietly discarding the feed command is a known
+     * behavior, not a fault in the sequence.
+     */
+    enum class FeedMode {
+        /** ESC J. What the reference sends, when the printer honors it. */
+        COMMAND,
+
+        /**
+         * Blank raster lines appended to the image. Cannot be ignored, because
+         * the paper has to move for the printer to print the nothing on it.
+         */
+        BLANK_ROWS,
+
+        /**
+         * The M110 footer, which advances to the next die-cut gap. Right
+         * distance every time when supported, since the printer measures the
+         * stock rather than being told a number.
+         */
+        GAP
+    }
+
     fun buildJob(
         raster: LabelRenderer.Raster,
         density: Int,
         protocol: Protocol = Protocol.M_SERIES,
         headWidthBytes: Int = DEFAULT_HEAD_WIDTH_BYTES,
         feedDots: Int = DEFAULT_FEED_DOTS,
+        feedMode: FeedMode = FeedMode.COMMAND,
         mediaType: Int = MEDIA_LABEL_WITH_GAPS
     ): List<Step> {
         val padded = padToHead(raster, headWidthBytes)
         val d = density.coerceIn(1, 8)
+
+        // Padding the image is the only method that changes the raster itself,
+        // so it has to happen before the header quotes a line count.
+        val body = if (feedMode == FeedMode.BLANK_ROWS) withBlankRows(padded, feedDots) else padded
+
+        val tail = when (feedMode) {
+            FeedMode.COMMAND -> Step(byteArrayOf(0x1b, 0x4a, feedDots.toByte()), 800)
+            FeedMode.BLANK_ROWS -> Step(ByteArray(0), 800)
+            FeedMode.GAP -> Step(FOOTER_FEED_TO_GAP, 800)
+        }
 
         return when (protocol) {
             Protocol.M_SERIES -> listOf(
                 Step(byteArrayOf(0x1b, 0x40), 100),                       // ESC @
                 Step(escHeat(HEAT_TIMES[d - 1]), 30),                     // ESC 7
                 Step(byteArrayOf(0x1d, 0x7c, d.toByte()), 50),            // GS | n
-                Step(rasterHeader(padded), 0),
-                Step(padded.data, 300, chunked = true),
-                Step(byteArrayOf(0x1b, 0x4a, feedDots.toByte()), 800)     // ESC J
+                Step(rasterHeader(body), 0),
+                Step(body.data, 300, chunked = true),
+                tail
             )
 
             Protocol.M110 -> listOf(
@@ -81,12 +119,29 @@ object PhomemoM220 {
                 Step(byteArrayOf(0x1f, 0x11, mediaType.toByte()), 30),    // media type
                 Step(rasterHeader(padded), 0),
                 Step(padded.data, 300, chunked = true),
-                Step(
-                    byteArrayOf(0x1f, 0xf0.toByte(), 0x05, 0x00, 0x1f, 0xf0.toByte(), 0x03, 0x00),
-                    500
-                )
+                Step(FOOTER_FEED_TO_GAP, 500)
             )
         }
+    }
+
+    /** Advance to the next die-cut gap. The M110 family's end-of-job footer. */
+    private val FOOTER_FEED_TO_GAP =
+        byteArrayOf(0x1f, 0xf0.toByte(), 0x05, 0x00, 0x1f, 0xf0.toByte(), 0x03, 0x00)
+
+    /**
+     * Appends blank lines to the raster.
+     *
+     * Zero bits are white, so this prints nothing - but the paper still has to
+     * travel under the head for it to do so, which is the point: a printer
+     * cannot ignore this the way it can ignore a feed command.
+     */
+    private fun withBlankRows(
+        raster: LabelRenderer.Raster,
+        rows: Int
+    ): LabelRenderer.Raster {
+        if (rows <= 0) return raster
+        val extended = raster.data.copyOf(raster.data.size + rows * raster.bytesPerLine)
+        return LabelRenderer.Raster(extended, raster.bytesPerLine, raster.lines + rows)
     }
 
     /** ESC 7: max dots, heat time, heat interval. */

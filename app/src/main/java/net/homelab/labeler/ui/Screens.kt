@@ -655,6 +655,35 @@ fun QualityScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: () 
             }
 
             SectionCard("Feed after printing") {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    val modes = listOf(
+                        PhomemoM220.FeedMode.COMMAND to "Command",
+                        PhomemoM220.FeedMode.BLANK_ROWS to "Blank rows",
+                        PhomemoM220.FeedMode.GAP to "To gap"
+                    )
+                    modes.forEachIndexed { index, (value, text) ->
+                        SegmentedButton(
+                            selected = vm.feedMode == value,
+                            onClick = { vm.updateFeedMode(value) },
+                            shape = SegmentedButtonDefaults.itemShape(index, modes.size)
+                        ) { Text(text, maxLines = 1) }
+                    }
+                }
+                Text(
+                    when (vm.feedMode) {
+                        PhomemoM220.FeedMode.COMMAND ->
+                            "Sends a feed command. Some units ignore it entirely, in " +
+                                "which case nothing moves and nothing reports an error."
+                        PhomemoM220.FeedMode.BLANK_ROWS ->
+                            "Adds blank lines to the image. The printer cannot ignore " +
+                                "this, because the paper has to move to print them."
+                        PhomemoM220.FeedMode.GAP ->
+                            "Asks the printer to advance to the next die-cut gap. Exactly " +
+                                "right when supported, and the distance below is unused."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Text(
                     "%.0f mm".format(vm.feedDots / 8f),
                     style = MaterialTheme.typography.bodyLarge
@@ -666,10 +695,9 @@ fun QualityScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: () 
                     steps = 29
                 )
                 Text(
-                    "How far the label advances once printed. Raise it until the " +
-                        "label clears the tear bar and you no longer reach for the " +
-                        "printer's own feed button. Ignored on the m110 command set, " +
-                        "whose footer feeds to the next gap by itself.",
+                    "How far the label advances once printed. Raise it until the label " +
+                        "clears the tear bar. Unused by the m110 command set, and by " +
+                        "the To gap method, which both let the printer decide.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
