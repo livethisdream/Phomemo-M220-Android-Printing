@@ -23,6 +23,7 @@ import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
 /**
@@ -207,6 +208,23 @@ class BleTransport(context: Context) {
     }
 
     /**
+     * Asks the printer to describe itself: paper, cover, battery, media type.
+     *
+     * The printer knows exactly why it refused a job and says so over BLE, but
+     * it also flashes the same message on its own screen and clears it in well
+     * under a second. This reads the version that stays still.
+     */
+    @Throws(IOException::class)
+    fun status(mac: String?, preferred: UUID? = null): List<String> {
+        val adapter = adapter ?: throw PrinterNotFound("No Bluetooth adapter on this device")
+        if (!adapter.isEnabled) throw PrinterNotFound("Bluetooth is turned off")
+        val address = mac ?: throw PrinterNotFound(
+            "No printer selected. Open Label settings and tap Find printer."
+        )
+        return Session(resolve(address)).use { it.queryStatus(preferred) }
+    }
+
+    /**
      * Opens a connection, writes the job, disconnects.
      *
      * [preferred] pins the characteristic the job goes to, overriding
@@ -260,6 +278,10 @@ class BleTransport(context: Context) {
         @Volatile private var failure: String? = null
         @Volatile private var mtu = DEFAULT_MTU
 
+        /** Status frames pushed by the printer, in arrival order. */
+        private val notifications = LinkedBlockingQueue<ByteArray>()
+        private val descriptorWritten = CountDownLatch(1)
+
         /** Guards the retry in [send] against reprinting a partial label. */
         @Volatile var bytesWritten = 0
             private set
@@ -290,6 +312,35 @@ class BleTransport(context: Context) {
             override fun onMtuChanged(g: BluetoothGatt, newMtu: Int, status: Int) {
                 if (status == BluetoothGatt.GATT_SUCCESS) mtu = newMtu
                 mtuSettled.countDown()
+            }
+
+            // Two overloads: the value-carrying one arrives on API 33+, the
+            // deprecated one below it on everything older.
+            override fun onCharacteristicChanged(
+                g: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+                value: ByteArray
+            ) {
+                notifications.offer(value)
+            }
+
+            @Deprecated("Superseded on API 33+ by the overload carrying the value.")
+            @Suppress("DEPRECATION")
+            override fun onCharacteristicChanged(
+                g: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic
+            ) {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                    characteristic.value?.let { notifications.offer(it.copyOf()) }
+                }
+            }
+
+            override fun onDescriptorWrite(
+                g: BluetoothGatt,
+                descriptor: android.bluetooth.BluetoothGattDescriptor,
+                status: Int
+            ) {
+                descriptorWritten.countDown()
             }
 
             @Deprecated("Kept for API < 33; the newer overload delegates to it.")
@@ -329,6 +380,73 @@ class BleTransport(context: Context) {
             return g
         }
 
+        /**
+         * Subscribes to the printer's status characteristic. Best effort - a
+         * printer that pushes nothing is still printable, we just lose the
+         * ability to hear why a job failed.
+         */
+        private fun enableNotifications(g: BluetoothGatt): Boolean {
+            val notifyChar = g.services
+                .filter { it.uuid !in HOUSEKEEPING_SERVICES }
+                .flatMap { it.characteristics }
+                .firstOrNull { it.properties and NOTIFIABLE != 0 }
+                ?: return false
+
+            if (!g.setCharacteristicNotification(notifyChar, true)) return false
+
+            // Subscribing is only half of it: the Client Characteristic
+            // Configuration descriptor is what actually tells the peripheral
+            // to start sending. Without this write, nothing arrives.
+            val cccd = notifyChar.getDescriptor(CCCD) ?: return false
+            val enable = if (notifyChar.properties and
+                BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
+            ) {
+                android.bluetooth.BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            } else {
+                android.bluetooth.BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeDescriptor(cccd, enable)
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    cccd.value = enable
+                    g.writeDescriptor(cccd)
+                }
+            }
+            descriptorWritten.await(DESCRIPTOR_MS, TimeUnit.MILLISECONDS)
+            return true
+        }
+
+        /** Asks the printer about itself and decodes whatever comes back. */
+        fun queryStatus(preferred: UUID?): List<String> {
+            val g = open()
+            val lines = mutableListOf<String>()
+
+            if (!enableNotifications(g)) {
+                return listOf("This device pushes no status frames, so it cannot report its state.")
+            }
+
+            val target = resolveTarget(g, preferred)
+            lines += "Asking on ${shortUuid(target.uuid)}"
+
+            for ((name, command) in PhomemoStatus.QUERIES) {
+                notifications.clear()
+                val ack = CountDownLatch(1)
+                writeAck = ack
+                writeChunk(g, target, command, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+                ack.await(WRITE_MS, TimeUnit.MILLISECONDS)
+
+                val reply = notifications.poll(QUERY_REPLY_MS, TimeUnit.MILLISECONDS)
+                lines += when {
+                    reply == null -> "$name: no reply"
+                    else -> PhomemoStatus.decode(reply) ?: "$name: ${PhomemoStatus.hex(reply)}"
+                }
+            }
+            return lines
+        }
+
         fun enumerate(): List<Endpoint> = open().services
             .filter { it.uuid !in HOUSEKEEPING_SERVICES }
             .flatMap { service ->
@@ -337,33 +455,36 @@ class BleTransport(context: Context) {
                     .map { Endpoint(service.uuid, it.uuid, it.properties) }
             }
 
+        private fun resolveTarget(
+            g: BluetoothGatt,
+            preferred: UUID?
+        ): BluetoothGattCharacteristic = preferred?.let { wanted ->
+            g.services.asSequence()
+                .flatMap { it.characteristics.asSequence() }
+                .firstOrNull { it.uuid == wanted && it.properties and WRITABLE != 0 }
+                ?: throw PrinterProtocol(
+                    "The chosen characteristic is not on this printer any more. " +
+                        "Re-run Printer diagnostics."
+                )
+        } ?: pickCharacteristic(g) ?: throw PrinterProtocol(
+            "Connected, but found nothing on this device that accepts a print job. " +
+                "It may not be a printer."
+        )
+
         fun write(payload: ByteArray, preferred: UUID?) {
             val g = open()
+            enableNotifications(g)
+            val target = resolveTarget(g, preferred)
 
-            val target = preferred?.let { wanted ->
-                g.services.asSequence()
-                    .flatMap { it.characteristics.asSequence() }
-                    .firstOrNull { it.uuid == wanted && it.properties and WRITABLE != 0 }
-                    ?: throw PrinterProtocol(
-                        "The chosen characteristic is not on this printer any more. " +
-                            "Re-run Printer diagnostics."
-                    )
-            } ?: pickCharacteristic(g) ?: throw PrinterProtocol(
-                "Connected, but found nothing on this device that accepts a print job. " +
-                    "It may not be a printer."
-            )
-
-            // Prefer acknowledged writes where the characteristic offers both.
-            // Costs a round trip per chunk, but the printer can actually refuse
-            // one - and silent success is precisely the failure being hunted.
-            val withResponse =
-                target.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0
-            val writeType = if (withResponse) {
-                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            } else {
+            // Match the known-good web implementation: unacknowledged writes
+            // where the characteristic supports them, falling back otherwise.
+            val noResponse =
+                target.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
+            val writeType = if (noResponse) {
                 BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            } else {
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             }
-            val noResponse = !withResponse
 
             // ATT overhead is 3 bytes: one opcode, two handle.
             val chunkSize = (mtu - 3).coerceIn(MIN_CHUNK, MAX_CHUNK)
@@ -391,6 +512,25 @@ class BleTransport(context: Context) {
 
             // Let the head finish before the connection drops.
             Thread.sleep(FINISH_MS)
+
+            // The job was accepted at the transport layer, which says nothing
+            // about whether it printed. If the printer pushed a complaint while
+            // we were writing, that is the real outcome - surface it instead of
+            // reporting a success nobody can see.
+            drainComplaint()?.let { throw PrinterProtocol(it) }
+        }
+
+        /** The first pushed status frame that reads as a problem, if any. */
+        private fun drainComplaint(): String? {
+            val frames = mutableListOf<ByteArray>()
+            notifications.drainTo(frames)
+            for (frame in frames) {
+                val reading = PhomemoStatus.decode(frame) ?: continue
+                if (COMPLAINTS.any { reading.contains(it) }) {
+                    return "Printer says: $reading"
+                }
+            }
+            return null
         }
 
         /**
@@ -518,6 +658,15 @@ class BleTransport(context: Context) {
         const val WRITABLE = BluetoothGattCharacteristic.PROPERTY_WRITE or
             BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE
 
+        const val NOTIFIABLE = BluetoothGattCharacteristic.PROPERTY_NOTIFY or
+            BluetoothGattCharacteristic.PROPERTY_INDICATE
+
+        /** Client Characteristic Configuration - the subscribe switch. */
+        val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805F9B34FB")
+
+        /** Readings that mean the job did not come out. */
+        val COMPLAINTS = listOf("OUT", "OPEN", "ERROR", "overheated", "empty")
+
         const val DEFAULT_MTU = 23
         const val PREFERRED_MTU = 517
         const val MIN_CHUNK = 20
@@ -540,6 +689,8 @@ class BleTransport(context: Context) {
         const val WRITE_MS = 10_000L
         const val NO_RESPONSE_PACING_MS = 8L
         const val FINISH_MS = 600L
+        const val DESCRIPTOR_MS = 3_000L
+        const val QUERY_REPLY_MS = 900L
     }
 }
 

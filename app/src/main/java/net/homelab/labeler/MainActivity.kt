@@ -175,6 +175,13 @@ class MainActivity : AppCompatActivity() {
                 )
             )
             root.addView(Button(this).apply {
+                text = "Ask printer for status"
+                setOnClickListener {
+                    commitFields()
+                    withBluetoothPermission { showStatus() }
+                }
+            })
+            root.addView(Button(this).apply {
                 text = "Printer diagnostics"
                 setOnClickListener {
                     commitFields()
@@ -281,6 +288,36 @@ class MainActivity : AppCompatActivity() {
                     showSettings()
                 }
             )
+        }
+    }
+
+    /** Shows what the printer reports about itself, verbatim. */
+    private fun showStatus() {
+        val loading = column()
+        loading.addView(heading("Printer status"))
+        loading.addView(body("Asking the printer..."))
+        setContentView(loading)
+
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { transport.status(prefs.printerMac, savedCharacteristic()) }
+            }
+
+            val root = column()
+            root.addView(heading("Printer status"))
+            result.fold(
+                onSuccess = { lines ->
+                    root.addView(body(lines.joinToString("\n")))
+                },
+                onFailure = { e ->
+                    root.addView(body(e.message ?: "Could not reach the printer"))
+                }
+            )
+            root.addView(Button(this@MainActivity).apply {
+                text = "Back"
+                setOnClickListener { showSettings() }
+            })
+            setContentView(ScrollView(this@MainActivity).apply { addView(root) })
         }
     }
 
