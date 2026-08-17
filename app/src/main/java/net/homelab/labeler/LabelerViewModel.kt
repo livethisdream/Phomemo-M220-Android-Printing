@@ -37,7 +37,20 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- The label being composed ---------------------------------------------
 
-    var label by mutableStateOf<LabelRenderer.Label?>(null)
+    /**
+     * What the label is made of. A shared URL becomes a generated QR; a shared
+     * image is printed as-is. They render differently enough to be separate
+     * cases rather than one type with optional fields.
+     */
+    sealed interface Source {
+        data class Qr(val label: LabelRenderer.Label) : Source
+        data class Picture(val bitmap: Bitmap) : Source
+    }
+
+    var source by mutableStateOf<Source?>(null)
+        private set
+
+    var imageMode by mutableStateOf(ImageLabel.Mode.THRESHOLD)
         private set
 
     var preview by mutableStateOf<Bitmap?>(null)
@@ -76,7 +89,17 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
     // --- Label composition ----------------------------------------------------
 
     fun updateLabel(value: LabelRenderer.Label?) {
-        label = value
+        source = value?.let { Source.Qr(it) }
+        rerender()
+    }
+
+    fun updateImage(bitmap: Bitmap) {
+        source = Source.Picture(bitmap)
+        rerender()
+    }
+
+    fun updateImageMode(mode: ImageLabel.Mode) {
+        imageMode = mode
         rerender()
     }
 
@@ -121,12 +144,15 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun rerender() {
-        val current = label
-        preview = if (current == null) {
-            null
-        } else {
-            runCatching { LabelRenderer.render(current, labelWidthMm, labelHeightMm) }.getOrNull()
-        }
+        preview = runCatching { renderCurrent() }.getOrNull()
+    }
+
+    /** The single place a label becomes pixels, shared by preview and print. */
+    private fun renderCurrent(): Bitmap? = when (val current = source) {
+        null -> null
+        is Source.Qr -> LabelRenderer.render(current.label, labelWidthMm, labelHeightMm)
+        is Source.Picture ->
+            ImageLabel.render(current.bitmap, labelWidthMm, labelHeightMm, imageMode)
     }
 
     // --- Printer work ---------------------------------------------------------
@@ -161,26 +187,32 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         prefs.characteristicUuid = endpoint.characteristic.toString()
         characteristic = prefs.characteristicUuid
         background("Testing ${endpoint.characteristic}") {
-            send(TEST_LABEL, endpoint.characteristic)
+            send(
+                LabelRenderer.render(TEST_LABEL, labelWidthMm, labelHeightMm),
+                endpoint.characteristic
+            )
             "Sent. If a label printed, that endpoint is now saved."
         }
     }
 
     fun print() {
-        val current = label ?: return
+        if (source == null) return
         background("Printing") {
-            send(current, savedCharacteristic())
+            val bitmap = renderCurrent() ?: throw IllegalStateException("Nothing to print")
+            send(bitmap, savedCharacteristic())
             "Printed"
         }
     }
 
     fun printTest() = background("Printing test label") {
-        send(TEST_LABEL, savedCharacteristic())
+        send(
+            LabelRenderer.render(TEST_LABEL, labelWidthMm, labelHeightMm),
+            savedCharacteristic()
+        )
         "Printed"
     }
 
-    private suspend fun send(target: LabelRenderer.Label, characteristic: UUID?) {
-        val bitmap = LabelRenderer.render(target, labelWidthMm, labelHeightMm)
+    private suspend fun send(bitmap: Bitmap, characteristic: UUID?) {
         val steps = PhomemoM220.buildJob(
             raster = LabelRenderer.toRaster(bitmap),
             density = density,

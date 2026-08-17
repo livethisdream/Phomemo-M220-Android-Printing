@@ -69,6 +69,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import net.homelab.labeler.BleTransport
+import net.homelab.labeler.ImageLabel
 import net.homelab.labeler.LabelSizes
 import net.homelab.labeler.LabelerViewModel
 import net.homelab.labeler.PhomemoM220
@@ -209,6 +210,35 @@ fun HomeScreen(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                // Only meaningful for a shared image; a generated QR is already
+                // pure black and white and has nothing to convert.
+                if (vm.source is LabelerViewModel.Source.Picture) {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        val modes = listOf(
+                            ImageLabel.Mode.THRESHOLD to "Sharp",
+                            ImageLabel.Mode.DITHER to "Photo"
+                        )
+                        modes.forEachIndexed { index, (value, text) ->
+                            SegmentedButton(
+                                selected = vm.imageMode == value,
+                                onClick = { vm.updateImageMode(value) },
+                                shape = SegmentedButtonDefaults.itemShape(index, modes.size)
+                            ) { Text(text) }
+                        }
+                    }
+                    Text(
+                        if (vm.imageMode == ImageLabel.Mode.THRESHOLD) {
+                            "Hard black and white. Right for QR codes, barcodes and line art."
+                        } else {
+                            "Dithered to fake grey. Right for photographs, wrong for QR codes."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             } else {
                 EmptyState()
             }

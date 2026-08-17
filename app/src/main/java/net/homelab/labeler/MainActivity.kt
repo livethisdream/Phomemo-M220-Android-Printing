@@ -3,6 +3,7 @@ package net.homelab.labeler
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -56,7 +57,26 @@ class MainActivity : ComponentActivity() {
      * app on its own home screen.
      */
     private fun handleIntent(intent: Intent) {
+        if (intent.action != Intent.ACTION_SEND) return
+
+        // Decode immediately rather than holding the Uri: the read grant that
+        // arrives with the share is scoped to this intent, and re-reading it
+        // later - after a size change, say - is not guaranteed to work.
+        sharedImageUri(intent)?.let { uri ->
+            ImageLabel.load(this, uri)?.let { vm.updateImage(it) }
+            return
+        }
         parseShare(intent)?.let(vm::updateLabel)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun sharedImageUri(intent: Intent): Uri? {
+        if (intent.type?.startsWith("image/") != true) return null
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
     }
 
     /**
