@@ -75,6 +75,19 @@ class Prefs(context: Context) {
             .putString(KEY_PROTOCOL, if (v == PhomemoM220.Protocol.M110) "m110" else "m-series")
             .apply()
 
+    /**
+     * Label sizes the user has entered and kept. Stored as "WxH" strings, in
+     * insertion order, because third-party stock rarely matches the vendor list.
+     */
+    var customSizes: List<LabelSizes.Size>
+        get() = sp.getString(KEY_CUSTOM_SIZES, null)
+            ?.split(",")
+            ?.mapNotNull { LabelSizes.Size.decode(it) }
+            .orEmpty()
+        set(v) = sp.edit()
+            .putString(KEY_CUSTOM_SIZES, v.joinToString(",") { it.encode() })
+            .apply()
+
     /** See PhomemoM220.MEDIA_* constants. */
     var mediaType: Int
         get() = sp.getInt(KEY_MEDIA, PhomemoM220.MEDIA_LABEL_WITH_GAPS)
@@ -91,5 +104,6 @@ class Prefs(context: Context) {
         const val KEY_SPEED = "speed"
         const val KEY_DENSITY = "density"
         const val KEY_MEDIA = "media_type"
+        const val KEY_CUSTOM_SIZES = "custom_sizes"
     }
 }

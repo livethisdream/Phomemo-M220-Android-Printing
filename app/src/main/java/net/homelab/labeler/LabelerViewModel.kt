@@ -61,6 +61,8 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var characteristic by mutableStateOf(prefs.characteristicUuid)
         private set
+    var customSizes by mutableStateOf(prefs.customSizes)
+        private set
 
     // --- Discovery and diagnostics results ------------------------------------
 
@@ -84,6 +86,19 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         prefs.labelWidthMm = labelWidthMm
         prefs.labelHeightMm = labelHeightMm
         rerender()
+    }
+
+    /** Keeps the current size as a reusable preset, ignoring duplicates. */
+    fun saveCurrentSize() {
+        val size = LabelSizes.Size(labelWidthMm, labelHeightMm)
+        if (size in customSizes || size in LabelSizes.STANDARD || size in LabelSizes.ROUND) return
+        customSizes = customSizes + size
+        prefs.customSizes = customSizes
+    }
+
+    fun forgetSize(size: LabelSizes.Size) {
+        customSizes = customSizes - size
+        prefs.customSizes = customSizes
     }
 
     fun updateDensity(value: Int) {

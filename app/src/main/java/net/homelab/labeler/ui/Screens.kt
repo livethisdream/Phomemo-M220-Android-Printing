@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,12 +17,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -32,6 +37,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -63,6 +69,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import net.homelab.labeler.BleTransport
+import net.homelab.labeler.LabelSizes
 import net.homelab.labeler.LabelerViewModel
 import net.homelab.labeler.PhomemoM220
 
@@ -196,9 +203,11 @@ fun HomeScreen(
                     )
                 }
                 Text(
-                    "${vm.labelWidthMm} x ${vm.labelHeightMm} mm",
+                    "${vm.labelWidthMm} × ${vm.labelHeightMm} mm",
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
             } else {
                 EmptyState()
@@ -503,41 +512,112 @@ fun LabelSizeScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: (
         var width by remember { mutableStateOf(vm.labelWidthMm.toString()) }
         var height by remember { mutableStateOf(vm.labelHeightMm.toString()) }
 
+        // Typing into the fields and then tapping a preset should not leave the
+        // fields showing something the label is not.
+        fun choose(size: LabelSizes.Size) {
+            vm.updateLabelSize(size.widthMm, size.heightMm)
+            width = size.widthMm.toString()
+            height = size.heightMm.toString()
+        }
+
+        val current = LabelSizes.Size(vm.labelWidthMm, vm.labelHeightMm)
+
         Column(
-            Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            SectionCard("Custom size") {
+            if (vm.customSizes.isNotEmpty()) {
+                SectionCard("Your sizes") {
+                    SizeChips(vm.customSizes, current, onPick = { choose(it) }, onForget = vm::forgetSize)
+                }
+            }
+
+            SectionCard("Standard sizes") {
+                SizeChips(LabelSizes.STANDARD, current, onPick = { choose(it) })
+            }
+
+            SectionCard("Round") {
+                SizeChips(LabelSizes.ROUND, current, onPick = { choose(it) })
+                Text(
+                    "Round stock is square underneath; the die cuts the circle. " +
+                        "Keep content away from the corners.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            SectionCard("Something else") {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
                         value = width,
-                        onValueChange = { width = it.filter(Char::isDigit) },
+                        onValueChange = { width = it.filter(Char::isDigit).take(3) },
                         label = { Text("Width mm") },
+                        singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
                         value = height,
-                        onValueChange = { height = it.filter(Char::isDigit) },
+                        onValueChange = { height = it.filter(Char::isDigit).take(3) },
                         label = { Text("Height mm") },
+                        singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                 }
-                Button(
-                    onClick = {
-                        vm.updateLabelSize(
-                            width.toIntOrNull() ?: vm.labelWidthMm,
-                            height.toIntOrNull() ?: vm.labelHeightMm
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Apply") }
+                Text(
+                    "Measure the label, not the backing. Width runs across the roll; " +
+                        "height is how far it feeds.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = {
+                            vm.updateLabelSize(
+                                width.toIntOrNull() ?: vm.labelWidthMm,
+                                height.toIntOrNull() ?: vm.labelHeightMm
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Apply") }
+                    FilledTonalButton(
+                        onClick = { vm.saveCurrentSize() },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Keep this size") }
+                }
             }
+        }
+    }
+}
 
-            Text(
-                "Measure the label itself, not the backing. Width runs across the roll; " +
-                    "height is how far it feeds.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SizeChips(
+    sizes: List<LabelSizes.Size>,
+    current: LabelSizes.Size,
+    onPick: (LabelSizes.Size) -> Unit,
+    onForget: ((LabelSizes.Size) -> Unit)? = null
+) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        sizes.forEach { size ->
+            FilterChip(
+                selected = size == current,
+                onClick = { onPick(size) },
+                label = { Text(size.label) },
+                trailingIcon = if (onForget != null && size == current) {
+                    {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Forget ${size.label}",
+                            modifier = Modifier.size(16.dp).clickable { onForget(size) }
+                        )
+                    }
+                } else {
+                    null
+                }
             )
         }
     }
