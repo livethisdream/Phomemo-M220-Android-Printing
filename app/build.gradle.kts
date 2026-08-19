@@ -22,7 +22,32 @@ android {
         versionName = buildVersionName
     }
 
+    /*
+     * A debug keystore committed to the repository.
+     *
+     * Without one, Gradle generates a random debug key wherever it does not
+     * find ~/.android/debug.keystore - which on a fresh CI runner is every
+     * single build. Android then refuses to install a new build over an old
+     * one, because a package signed by a different key is a different app as
+     * far as it is concerned, and reports only "App not installed".
+     *
+     * A debug key is not a secret: it grants nothing except the ability to
+     * sign an app that claims this package name, and anyone can generate an
+     * equivalent one. It must never be used to sign a store release.
+     */
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
         }

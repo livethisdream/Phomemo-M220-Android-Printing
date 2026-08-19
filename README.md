@@ -32,9 +32,19 @@ stamps each build as `0.1.<run number>`. If Obtainium still reports no update,
 switch its version detection for this app to use the APK version or the release
 date rather than the tag.
 
-The build is debug-signed, which is what makes it installable at all without a
-release keystore. It also means Android treats it as a different app from any
-release-signed build, so switching between them needs an uninstall first.
+The build is debug-signed with the keystore committed at `app/debug.keystore`,
+which is deliberate. Gradle invents a random debug key wherever it cannot find
+`~/.android/debug.keystore`, and on a fresh CI runner that is every build - so
+every APK was signed by a different key and Android refused to install one over
+another, reporting only "App not installed". A fixed key makes builds upgrade
+in place.
+
+A debug key is not a secret. It grants nothing beyond signing an app that
+claims this package name, and anyone can generate an equivalent. It must never
+be used for a store release.
+
+If you installed a build from before this change, uninstall once - the old key
+cannot be upgraded from.
 
 ## Flow
 
