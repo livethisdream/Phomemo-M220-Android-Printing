@@ -16,9 +16,21 @@ Open it on the phone and tap through the installer. No GitHub account, no zip
 to unpack. Android will ask once for permission to install from whatever app
 you opened the link in.
 
-For updates without checking manually, point
-[Obtainium](https://github.com/ImranR98/Obtainium) at the repository - it
-watches releases and installs new builds as they appear.
+For updates without checking manually, add the **repository** URL - not the
+APK link - to [Obtainium](https://github.com/ImranR98/Obtainium):
+
+```
+https://github.com/livethisdream/Phomemo-M220-Android-Printing
+```
+
+Then turn on **Include prereleases** in that app's settings, since the rolling
+build is published as one.
+
+Obtainium decides whether a build is new by comparing versions, and the release
+tag never changes here, so the version has to come from the APK itself: CI
+stamps each build as `0.1.<run number>`. If Obtainium still reports no update,
+switch its version detection for this app to use the APK version or the release
+date rather than the tag.
 
 The build is debug-signed, which is what makes it installable at all without a
 release keystore. It also means Android treats it as a different app from any

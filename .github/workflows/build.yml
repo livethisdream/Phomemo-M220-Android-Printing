@@ -27,7 +27,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Assemble debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          ./gradlew assembleDebug --stacktrace \
+            -PappVersionCode=${{ github.run_number }} \
+            -PappVersionName=0.1.${{ github.run_number }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -50,7 +53,7 @@ jobs:
           gh release create dev homebox-labeler.apk \
             --title "Latest development build" \
             --prerelease \
-            --notes "Debug build of \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:7}\`.
+            --notes "Version 0.1.${GITHUB_RUN_NUMBER}, built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:7}\`.
 
           Install directly: [homebox-labeler.apk](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev/homebox-labeler.apk)
 

@@ -1,3 +1,9 @@
+// Stamped by CI so every build carries a distinct version. Update trackers
+// like Obtainium compare versions to decide whether a build is new, and a
+// rolling release tag gives them nothing to compare - the APK has to say.
+val buildVersionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
+val buildVersionName = (project.findProperty("appVersionName") as String?) ?: "0.1-local"
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -12,8 +18,8 @@ android {
         applicationId = "net.homelab.labeler"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = buildVersionCode
+        versionName = buildVersionName
     }
 
     buildTypes {
