@@ -5,6 +5,25 @@ An Android share target that prints Homebox item QR labels to a Phomemo M220.
 It is **not** a Homebox client. Homebox stays in Chrome. This app does one
 thing: accept a shared URL, render a label, push it to the printer.
 
+## Install
+
+Every push builds an APK and replaces a rolling `dev` release, so this link
+always serves the newest build:
+
+**https://github.com/livethisdream/Phomemo-M220-Android-Printing/releases/download/dev/homebox-labeler.apk**
+
+Open it on the phone and tap through the installer. No GitHub account, no zip
+to unpack. Android will ask once for permission to install from whatever app
+you opened the link in.
+
+For updates without checking manually, point
+[Obtainium](https://github.com/ImranR98/Obtainium) at the repository - it
+watches releases and installs new builds as they appear.
+
+The build is debug-signed, which is what makes it installable at all without a
+release keystore. It also means Android treats it as a different app from any
+release-signed build, so switching between them needs an uninstall first.
+
 ## Flow
 
 1. Open any Homebox item page in Chrome on your phone.

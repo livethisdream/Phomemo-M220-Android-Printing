@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Needed to publish the rolling release below.
+permissions:
+  contents: write
+
 jobs:
   assemble-debug:
     runs-on: ubuntu-latest
@@ -31,3 +35,23 @@ jobs:
           name: homebox-labeler-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # Actions artifacts are a zip behind a login wall, which makes installing
+      # on a phone a four-step chore. A release asset is a plain file on a
+      # public repo: one tap, no account, no unzipping. The tag is reused so the
+      # download URL never changes and can be bookmarked or given to Obtainium.
+      - name: Publish rolling dev build
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk homebox-labeler.apk
+          gh release delete dev --yes --cleanup-tag || true
+          gh release create dev homebox-labeler.apk \
+            --title "Latest development build" \
+            --prerelease \
+            --notes "Debug build of \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:7}\`.
+
+          Install directly: [homebox-labeler.apk](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev/homebox-labeler.apk)
+
+          This tag is replaced by every build, so that link always serves the newest one."
