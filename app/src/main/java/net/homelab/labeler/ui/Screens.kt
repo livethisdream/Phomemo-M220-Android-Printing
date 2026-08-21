@@ -554,6 +554,50 @@ fun LabelSizeScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: (
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (vm.labelTooWide) {
+                Card(
+                    Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Text(
+                        "${vm.labelWidthMm} mm is wider than the ${vm.headWidthMm} mm print " +
+                            "head. Everything past the head is dropped before printing. " +
+                            "Width runs across the roll - if this is the long side of the " +
+                            "label, swap it.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+
+            SectionCard("Not sure which way round?") {
+                Text(
+                    "Width is the dimension across the roll, and it is the one that " +
+                        "matters: the image is registered to the right-hand edge of the " +
+                        "head, so a width larger than the stock pushes the difference off " +
+                        "the left of the label. The preview cannot show this, because the " +
+                        "preview is the label - the error is in where the label sits.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                FilledTonalButton(
+                    onClick = { vm.printRuler() },
+                    enabled = vm.job !is LabelerViewModel.Job.Busy && vm.printerMac != null,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Print a measuring guide") }
+                Text(
+                    "Prints a scale across the whole head, numbered in from the right. " +
+                        "The largest number still on the label is your stock width. If the " +
+                        "bar is cut off at the right-hand end too, the roll is not " +
+                        "right-registered and the alignment setting needs changing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             if (vm.customSizes.isNotEmpty()) {
                 SectionCard("Your sizes") {
                     SizeChips(vm.customSizes, current, onPick = { choose(it) }, onForget = vm::forgetSize)
@@ -599,16 +643,26 @@ fun LabelSizeScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: (
                 )
                 // Applying a size not in any list keeps it automatically, so
                 // there is nothing extra to press to make it stick.
-                Button(
-                    onClick = {
-                        vm.updateLabelSize(
-                            width.toIntOrNull() ?: vm.labelWidthMm,
-                            height.toIntOrNull() ?: vm.labelHeightMm
-                        )
-                        vm.saveCurrentSize()
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Apply") }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        onClick = {
+                            vm.swapLabelSize()
+                            width = vm.labelWidthMm.toString()
+                            height = vm.labelHeightMm.toString()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Swap") }
+                    Button(
+                        onClick = {
+                            vm.updateLabelSize(
+                                width.toIntOrNull() ?: vm.labelWidthMm,
+                                height.toIntOrNull() ?: vm.labelHeightMm
+                            )
+                            vm.saveCurrentSize()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Apply") }
+                }
             }
         }
     }

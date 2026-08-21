@@ -315,6 +315,17 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         rerender()
     }
 
+    /** True when the label is wider than the head can physically print. */
+    val labelTooWide: Boolean get() = labelWidthMm > headWidthMm
+
+    /**
+     * Swaps the two dimensions. Which number is the width is the single thing
+     * about label stock that cannot be worked out from the design - it is fixed
+     * by the roll - and getting it backwards silently pushes the image off the
+     * registered edge, so reversing it is worth one button.
+     */
+    fun swapLabelSize() = updateLabelSize(labelHeightMm, labelWidthMm)
+
     fun updateLabelSize(widthMm: Int, heightMm: Int) {
         // Elements keep their millimeter positions, so a size change moves the
         // label edges around them rather than rescaling the design.
@@ -429,6 +440,16 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
             send(bitmap, savedCharacteristic())
             "Printed"
         }
+    }
+
+    /**
+     * Prints the head-width scale. Sent at exactly the head width so nothing is
+     * padded or cropped on the way out - the whole point is to show where the
+     * head's own edges fall on the stock.
+     */
+    fun printRuler() = background("Printing measuring guide") {
+        send(HeadRuler.render(headWidthMm), savedCharacteristic())
+        "Printed. The largest number still on the label is your stock width."
     }
 
     fun printTest() = background("Printing test label") {

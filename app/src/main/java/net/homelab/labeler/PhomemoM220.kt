@@ -190,6 +190,34 @@ object PhomemoM220 {
     )
 
     /**
+     * Narrows a label entered wider than the head can print.
+     *
+     * The printer reads a fixed number of bytes per line, so an oversized line
+     * does not print wide - it desynchronises the block and every line after it
+     * is assembled from the wrong bytes, which looks like a hardware fault
+     * rather than a number typed into a settings screen. Losing the overhang is
+     * a visible, local failure instead; the size screen warns before it happens.
+     *
+     * The right-hand bytes are the ones kept, matching where a right-registered
+     * roll sits under the head.
+     */
+    private fun cropToHead(
+        raster: LabelRenderer.Raster,
+        headWidthBytes: Int
+    ): LabelRenderer.Raster {
+        val out = ByteArray(headWidthBytes * raster.lines)
+        val offset = raster.bytesPerLine - headWidthBytes
+        for (y in 0 until raster.lines) {
+            System.arraycopy(
+                raster.data, y * raster.bytesPerLine + offset,
+                out, y * headWidthBytes,
+                headWidthBytes
+            )
+        }
+        return LabelRenderer.Raster(out, headWidthBytes, raster.lines)
+    }
+
+    /**
      * Widens each line to the head width, placing the content per [alignment].
      *
      * The printer reads exactly head-width bytes per line. A short line is not
@@ -201,7 +229,8 @@ object PhomemoM220 {
         headWidthBytes: Int,
         alignment: Alignment
     ): LabelRenderer.Raster {
-        if (raster.bytesPerLine >= headWidthBytes) return raster
+        if (raster.bytesPerLine == headWidthBytes) return raster
+        if (raster.bytesPerLine > headWidthBytes) return cropToHead(raster, headWidthBytes)
 
         val slack = headWidthBytes - raster.bytesPerLine
         val leftPad = when (alignment) {

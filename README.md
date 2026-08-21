@@ -142,6 +142,27 @@ Sizes are in millimetres and convert at exactly **8 dots/mm** (203.2 dpi).
 - Raster width is rounded down to a whole byte, so widths land on multiples of
   1 mm cleanly.
 
+## Measuring the stock
+
+Width is the dimension **across the roll**, and it is the one that matters. The
+image is registered to the right-hand edge of the head, so a width larger than
+the stock pushes the difference off the *left* of the label. The preview cannot
+show this: the preview is the label, and the error is in where the label sits
+under the head.
+
+Settings → Label size → **Print a measuring guide** settles it. It prints a
+scale across the full head width, numbered inwards from the right. The largest
+number still readable on the label is the stock width, measured instead of
+guessed. If the solid bar is cut off at the *right-hand* end too, the roll is
+not right-registered and `Alignment` needs changing.
+
+The arithmetic worth knowing: padding can only move the image by
+`head width - label width`. On a 72 mm head a 70 mm label has 2 mm of slack, so
+if content is running well off an edge at that width, the cause is the entered
+width, not the alignment setting. A label entered wider than the head is cropped
+to it - an oversized raster line does not print wide, it desynchronises the
+block and turns every following line into garbage.
+
 ## Tuning
 
 If QR codes scan unreliably, in this order:
