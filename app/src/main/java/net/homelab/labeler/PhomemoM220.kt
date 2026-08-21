@@ -62,8 +62,16 @@ object PhomemoM220 {
      */
     const val DEFAULT_HEAD_WIDTH_BYTES = 72
 
-    /** Dots fed after a label. The reference default. */
-    const val DEFAULT_FEED_DOTS = 32
+    /**
+     * Dots fed after a label: 15 mm at 8 dots/mm.
+     *
+     * The reference default is 32 dots, which is 4 mm - far short of the
+     * head-to-tear-bar distance on this hardware, so the label stops before it
+     * can be torn off. A default that does not accomplish the thing it exists
+     * for is worse than no default, because it looks like the feature is
+     * broken rather than merely unset.
+     */
+    const val DEFAULT_FEED_DOTS = 120
 
     /** ESC 7 heat time per density step 1-8. Higher is darker. */
     private val HEAT_TIMES = intArrayOf(40, 60, 80, 100, 120, 140, 160, 200)
@@ -78,7 +86,11 @@ object PhomemoM220 {
      * behavior, not a fault in the sequence.
      */
     enum class FeedMode {
-        /** ESC J. What the reference sends, when the printer honors it. */
+        /**
+         * ESC J. What the reference sends. Confirmed inert on this M220 - the
+         * write succeeds and the paper does not move - so it is no longer the
+         * default, only kept for printers that do honor it.
+         */
         COMMAND,
 
         /**
@@ -101,7 +113,7 @@ object PhomemoM220 {
         protocol: Protocol = Protocol.M_SERIES,
         headWidthBytes: Int = DEFAULT_HEAD_WIDTH_BYTES,
         feedDots: Int = DEFAULT_FEED_DOTS,
-        feedMode: FeedMode = FeedMode.COMMAND,
+        feedMode: FeedMode = FeedMode.BLANK_ROWS,
         alignment: Alignment = Alignment.RIGHT,
         mediaType: Int = MEDIA_LABEL_WITH_GAPS
     ): List<Step> {

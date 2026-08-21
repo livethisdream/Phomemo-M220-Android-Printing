@@ -89,28 +89,29 @@ class Prefs(context: Context) {
             .apply()
 
     /**
-     * Dots fed after a label, at 8 per mm. The reference default of 32 is only
-     * 4 mm, which leaves the label short of the tear bar on most units - hence
-     * reaching for the printer's own feed button after every print.
+     * Dots fed after a label, at 8 per mm. Defaults to 15 mm rather than the
+     * reference's 4 mm, which is nowhere near the head-to-tear-bar distance.
      *
-     * Only the m-series command set uses this. The m110 footer is itself a
-     * feed-to-gap sequence, so the value is ignored there.
+     * Unused by the m110 command set and by the feed-to-gap method, which both
+     * let the printer decide the distance from the stock itself.
      */
     var feedDots: Int
         get() = sp.getInt(KEY_FEED, PhomemoM220.DEFAULT_FEED_DOTS)
         set(v) = sp.edit().putInt(KEY_FEED, v.coerceIn(0, 240)).apply()
 
     /**
-     * How the label is advanced after printing. Adjustable because ESC J is
-     * documented in the reference as being ignored on some units, and there is
-     * no way to detect that from this side - the printer reports success either
-     * way and simply does not move the paper.
+     * How the label is advanced after printing.
+     *
+     * Defaults to blank rows rather than the feed command, because ESC J is
+     * confirmed inert on this hardware: the write succeeds, the printer reports
+     * nothing, and the paper stays put. Blank rows cannot fail that way - the
+     * paper has to travel under the head for the printer to print them.
      */
     var feedMode: PhomemoM220.FeedMode
         get() = when (sp.getString(KEY_FEED_MODE, null)) {
-            "blank" -> PhomemoM220.FeedMode.BLANK_ROWS
+            "command" -> PhomemoM220.FeedMode.COMMAND
             "gap" -> PhomemoM220.FeedMode.GAP
-            else -> PhomemoM220.FeedMode.COMMAND
+            else -> PhomemoM220.FeedMode.BLANK_ROWS
         }
         set(v) = sp.edit().putString(
             KEY_FEED_MODE,

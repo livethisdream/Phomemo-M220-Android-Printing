@@ -672,11 +672,13 @@ fun QualityScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: () 
                 Text(
                     when (vm.feedMode) {
                         PhomemoM220.FeedMode.COMMAND ->
-                            "Sends a feed command. Some units ignore it entirely, in " +
-                                "which case nothing moves and nothing reports an error."
+                            "Sends a feed command. This M220 ignores it - nothing moves " +
+                                "and nothing reports an error - so it is here only for " +
+                                "printers that honor it."
                         PhomemoM220.FeedMode.BLANK_ROWS ->
-                            "Adds blank lines to the image. The printer cannot ignore " +
-                                "this, because the paper has to move to print them."
+                            "Adds blank lines to the image, so the paper has to move to " +
+                                "print them. Set the distance below to whatever clears " +
+                                "your tear bar."
                         PhomemoM220.FeedMode.GAP ->
                             "Asks the printer to advance to the next die-cut gap. Exactly " +
                                 "right when supported, and the distance below is unused."
