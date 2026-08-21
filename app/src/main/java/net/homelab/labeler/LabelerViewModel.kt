@@ -449,7 +449,7 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun printRuler() = background("Printing measuring guide") {
         send(HeadRuler.render(headWidthMm), savedCharacteristic())
-        "Printed. The largest number still on the label is your stock width."
+        "Printed. The largest number you can read is your printable width."
     }
 
     fun printTest() = background("Printing test label") {

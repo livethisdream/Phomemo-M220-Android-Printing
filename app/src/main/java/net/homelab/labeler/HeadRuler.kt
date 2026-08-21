@@ -28,7 +28,7 @@ object HeadRuler {
     private const val DPMM = LabelRenderer.DOTS_PER_MM
 
     /** Tall enough for a legible scale, short enough not to waste a label. */
-    private const val HEIGHT_MM = 26
+    private const val HEIGHT_MM = 28
 
     fun render(headWidthBytes: Int): Bitmap {
         val width = headWidthBytes.coerceIn(16, 104) * 8
@@ -83,7 +83,32 @@ object HeadRuler {
             }
         }
 
-        val caption = "mm from right edge - read the largest number you can see"
+        // A wedge pointing at the head's last dot, with its number inside the
+        // print rather than beyond it.
+        //
+        // This is the half of the measurement that the scale alone cannot give.
+        // The numbers say how much head landed on the label; the wedge says
+        // whether the head reached the label's right edge at all. Blank paper to
+        // the right of it means the roll is sitting outboard of the head, and
+        // no alignment setting can print on paper the head cannot cover.
+        // Clear of the numerals, which run to roughly 9 mm below the baseline.
+        val wedgeTop = baseline + 11f * DPMM
+        val wedge = android.graphics.Path().apply {
+            moveTo(width.toFloat(), wedgeTop)
+            lineTo(width.toFloat(), wedgeTop + 5f * DPMM)
+            lineTo(width - 4f * DPMM, wedgeTop + 2.5f * DPMM)
+            close()
+        }
+        canvas.drawPath(wedge, ink)
+        val zero = "0"
+        canvas.drawText(
+            zero,
+            width - 4f * DPMM - text.measureText(zero) - 1f * DPMM,
+            wedgeTop + 4f * DPMM,
+            text
+        )
+
+        val caption = "mm in from the head's right edge"
         text.textSize = 2.6f * DPMM
         canvas.drawText(
             caption,

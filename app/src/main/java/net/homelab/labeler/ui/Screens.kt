@@ -565,7 +565,7 @@ fun LabelSizeScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: (
                         "${vm.labelWidthMm} mm is wider than the ${vm.headWidthMm} mm print " +
                             "head. Everything past the head is dropped before printing. " +
                             "Width runs across the roll - if this is the long side of the " +
-                            "label, swap it.",
+                            "label, swap it; otherwise measure the printable width below.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.padding(16.dp)
@@ -573,13 +573,14 @@ fun LabelSizeScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: (
                 }
             }
 
-            SectionCard("Not sure which way round?") {
+            SectionCard("Measure the printable width") {
                 Text(
-                    "Width is the dimension across the roll, and it is the one that " +
-                        "matters: the image is registered to the right-hand edge of the " +
-                        "head, so a width larger than the stock pushes the difference off " +
-                        "the left of the label. The preview cannot show this, because the " +
-                        "preview is the label - the error is in where the label sits.",
+                    "Width is the dimension across the roll. It is not always the width " +
+                        "you can print: the image is registered to the right-hand edge of " +
+                        "the head, so if the roll sits outboard of the head the image " +
+                        "starts too far left and its left edge falls off the label. The " +
+                        "preview cannot show this - the preview is the label, and the " +
+                        "error is in where the label sits under the head.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -589,10 +590,14 @@ fun LabelSizeScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: (
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Print a measuring guide") }
                 Text(
-                    "Prints a scale across the whole head, numbered in from the right. " +
-                        "The largest number still on the label is your stock width. If the " +
-                        "bar is cut off at the right-hand end too, the roll is not " +
-                        "right-registered and the alignment setting needs changing.",
+                    "Prints a scale across the whole head, numbered in from its right " +
+                        "edge, with a wedge marking the head's last dot.\n\n" +
+                        "The largest number you can read is the widest label this " +
+                        "printer can fill - set that as the width. Blank paper to the " +
+                        "right of the wedge means the roll is sitting outboard of the " +
+                        "head; reseating it further left recovers that much width. If " +
+                        "instead the bar is cut off on the left, the stock is simply " +
+                        "narrower than the head and nothing is wrong.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

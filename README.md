@@ -150,18 +150,33 @@ the stock pushes the difference off the *left* of the label. The preview cannot
 show this: the preview is the label, and the error is in where the label sits
 under the head.
 
-Settings → Label size → **Print a measuring guide** settles it. It prints a
-scale across the full head width, numbered inwards from the right. The largest
-number still readable on the label is the stock width, measured instead of
-guessed. If the solid bar is cut off at the *right-hand* end too, the roll is
-not right-registered and `Alignment` needs changing.
+Stock width and *printable* width are not the same number. The image is
+registered to the head's right-hand edge, so if the roll sits outboard of the
+head, the image starts too far left and its left edge runs off the label - on
+stock that is genuinely as wide as you measured.
+
+Settings → Label size → **Print a measuring guide** measures the difference. It
+prints a scale across the full head width, numbered inwards from the head's
+right edge, with a wedge marking the head's last dot:
+
+- The largest number you can read is the **widest label this printer can fill**.
+  Set that as the width.
+- **Blank paper to the right of the wedge** means the roll is outboard of the
+  head. Reseating it further left recovers that much width.
+- **The bar cut off on the left** just means the stock is narrower than the
+  head. Nothing is wrong.
 
 The arithmetic worth knowing: padding can only move the image by
-`head width - label width`. On a 72 mm head a 70 mm label has 2 mm of slack, so
-if content is running well off an edge at that width, the cause is the entered
-width, not the alignment setting. A label entered wider than the head is cropped
-to it - an oversized raster line does not print wide, it desynchronises the
-block and turns every following line into garbage.
+`head width - label width`. On a 72 mm head a 70 mm label has 2 mm of slack -
+the image is already as far right as the head can put it - so content running
+well off the *left* at that width cannot be an alignment problem. Something is
+stopping the head from reaching the paper's right edge, and only measuring says
+what.
+
+A label entered wider than the head is cropped to it. An oversized raster line
+does not print wide: it desynchronises the block and turns every following line
+into garbage, which reads as a hardware fault rather than as a number typed into
+a settings screen.
 
 ## Tuning
 
