@@ -584,11 +584,27 @@ fun LabelSizeScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: (
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                FilledTonalButton(
-                    onClick = { vm.printRuler() },
-                    enabled = vm.job !is LabelerViewModel.Job.Busy && vm.printerMac != null,
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Print a measuring guide") }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(
+                        onClick = { vm.printRuler() },
+                        enabled = vm.job !is LabelerViewModel.Job.Busy && vm.printerMac != null,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Measure") }
+                    FilledTonalButton(
+                        onClick = { vm.printEdgeTest() },
+                        enabled = vm.job !is LabelerViewModel.Job.Busy && vm.printerMac != null,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Edge test") }
+                }
+                Text(
+                    "Edge test draws this label's outline. Every edge that lands on " +
+                        "the label is a dimension that is right. A missing left or right " +
+                        "edge means the width is wrong; a missing top or bottom means the " +
+                        "paper is not starting where the print does, which is feed, not " +
+                        "size.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Text(
                     "Prints a scale across the whole head, numbered in from its right " +
                         "edge, with a wedge marking the head's last dot.\n\n" +
@@ -747,8 +763,11 @@ fun QualityScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: () 
                                 "printers that honor it."
                         PhomemoM220.FeedMode.BLANK_ROWS ->
                             "Adds blank lines to the image, so the paper has to move to " +
-                                "print them. Set the distance below to whatever clears " +
-                                "your tear bar."
+                                "print them. Note the trap: the image is already a whole " +
+                                "label tall, so anything past the gap between labels " +
+                                "overshoots, and the next print starts that much further " +
+                                "down. Reaching the tear bar and staying registered are " +
+                                "in direct conflict here - only To gap does both."
                         PhomemoM220.FeedMode.GAP ->
                             "Asks the printer to advance to the next die-cut gap. Exactly " +
                                 "right when supported, and the distance below is unused."

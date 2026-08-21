@@ -166,6 +166,27 @@ right edge, with a wedge marking the head's last dot:
 - **The bar cut off on the left** just means the stock is narrower than the
   head. Nothing is wrong.
 
+**Edge test** prints the label's own outline at the current size. Every edge
+that lands on the label is a dimension that is right, and every missing edge
+names its own problem: a missing left or right edge is the width, a missing top
+or bottom is the feed. It goes through the same padding and alignment as a real
+print, so it cannot pass while printing fails.
+
+## Registration and the feed trap
+
+Blank-row feed cannot both reach the tear bar and stay registered.
+
+The image is already a whole label tall, so the paper advances one label height
+per print on its own. Anything added past the gap between labels overshoots, and
+the next print starts that much further down - cumulatively, so the drift grows
+with every label until content runs off the end. A feed distance large enough to
+clear the tear bar is far larger than a die-cut gap, which makes those two goals
+directly opposed.
+
+Only **To gap** does both, because the printer measures the stock instead of
+being told a number. If a print is clipped at the top or bottom while the left
+and right edges are fine, this is the setting, not the label size.
+
 The arithmetic worth knowing: padding can only move the image by
 `head width - label width`. On a 72 mm head a 70 mm label has 2 mm of slack -
 the image is already as far right as the head can put it - so content running

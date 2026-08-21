@@ -452,6 +452,16 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         "Printed. The largest number you can read is your printable width."
     }
 
+    /**
+     * Prints the label's outline at the current size. Sent at the label's own
+     * width so it goes through exactly the same padding and alignment as a real
+     * print - a test that took a different path could pass while printing fails.
+     */
+    fun printEdgeTest() = background("Printing edge test") {
+        send(EdgeTest.render(labelWidthMm, labelHeightMm), savedCharacteristic())
+        "Printed. Every edge and both corners should be on the label."
+    }
+
     fun printTest() = background("Printing test label") {
         send(
             LabelRenderer.render(TEST_LABEL, labelWidthMm, labelHeightMm),
