@@ -29,6 +29,20 @@ object PhomemoM220 {
     enum class Protocol { M_SERIES, M110 }
 
     /**
+     * Where the label stock sits under the print head.
+     *
+     * Every raster line is padded to the full head width, so this decides where
+     * the padding goes - and therefore where the image lands on the paper. It
+     * is a property of the printer's paper path, not of the label: printers.json
+     * records the M220 as a "right-aligned roll" while other models center.
+     *
+     * Getting it wrong shifts the whole design sideways and pushes one edge off
+     * the label, which the on-screen preview cannot show, because the preview is
+     * the label and the error is in where the label sits.
+     */
+    enum class Alignment { LEFT, CENTER, RIGHT }
+
+    /**
      * One write plus the pause that follows it. [chunked] marks the bulk raster,
      * which the transport splits into 128-byte writes.
      */
@@ -88,9 +102,10 @@ object PhomemoM220 {
         headWidthBytes: Int = DEFAULT_HEAD_WIDTH_BYTES,
         feedDots: Int = DEFAULT_FEED_DOTS,
         feedMode: FeedMode = FeedMode.COMMAND,
+        alignment: Alignment = Alignment.RIGHT,
         mediaType: Int = MEDIA_LABEL_WITH_GAPS
     ): List<Step> {
-        val padded = padToHead(raster, headWidthBytes)
+        val padded = padToHead(raster, headWidthBytes, alignment)
         val d = density.coerceIn(1, 8)
 
         // Padding the image is the only method that changes the raster itself,
@@ -163,22 +178,25 @@ object PhomemoM220 {
     )
 
     /**
-     * Widens each line to the head width, centering the content.
+     * Widens each line to the head width, placing the content per [alignment].
      *
      * The printer reads exactly head-width bytes per line. A short line is not
      * a narrow label - it desynchronises the block, and every subsequent line
      * is assembled from the wrong bytes.
-     *
-     * Centered because that is what the reference uses for any device it does
-     * not recognize, which includes units advertising under the Q... scheme.
      */
     private fun padToHead(
         raster: LabelRenderer.Raster,
-        headWidthBytes: Int
+        headWidthBytes: Int,
+        alignment: Alignment
     ): LabelRenderer.Raster {
         if (raster.bytesPerLine >= headWidthBytes) return raster
 
-        val leftPad = (headWidthBytes - raster.bytesPerLine) / 2
+        val slack = headWidthBytes - raster.bytesPerLine
+        val leftPad = when (alignment) {
+            Alignment.LEFT -> 0
+            Alignment.CENTER -> slack / 2
+            Alignment.RIGHT -> slack
+        }
         val out = ByteArray(headWidthBytes * raster.lines)
         for (y in 0 until raster.lines) {
             System.arraycopy(

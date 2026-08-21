@@ -75,6 +75,8 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var feedMode by mutableStateOf(prefs.feedMode)
         private set
+    var alignment by mutableStateOf(prefs.alignment)
+        private set
     var protocol by mutableStateOf(prefs.protocol)
         private set
     var printerName by mutableStateOf(prefs.printerName)
@@ -265,6 +267,11 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         prefs.feedMode = value
     }
 
+    fun updateAlignment(value: PhomemoM220.Alignment) {
+        alignment = value
+        prefs.alignment = value
+    }
+
     fun updateProtocol(value: PhomemoM220.Protocol) {
         protocol = value
         prefs.protocol = value
@@ -348,6 +355,7 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
             headWidthBytes = headWidthMm,
             feedDots = feedDots,
             feedMode = feedMode,
+            alignment = alignment,
             mediaType = prefs.mediaType
         )
         transport.send(prefs.printerMac, steps, characteristic)

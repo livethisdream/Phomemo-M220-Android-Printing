@@ -121,6 +121,25 @@ class Prefs(context: Context) {
             }
         ).apply()
 
+    /**
+     * Where the roll sits under the print head. printers.json records the M220
+     * as right-aligned, which is the default here; other models center.
+     */
+    var alignment: PhomemoM220.Alignment
+        get() = when (sp.getString(KEY_ALIGNMENT, null)) {
+            "left" -> PhomemoM220.Alignment.LEFT
+            "center" -> PhomemoM220.Alignment.CENTER
+            else -> PhomemoM220.Alignment.RIGHT
+        }
+        set(v) = sp.edit().putString(
+            KEY_ALIGNMENT,
+            when (v) {
+                PhomemoM220.Alignment.LEFT -> "left"
+                PhomemoM220.Alignment.CENTER -> "center"
+                PhomemoM220.Alignment.RIGHT -> "right"
+            }
+        ).apply()
+
     /** See PhomemoM220.MEDIA_* constants. */
     var mediaType: Int
         get() = sp.getInt(KEY_MEDIA, PhomemoM220.MEDIA_LABEL_WITH_GAPS)
@@ -140,5 +159,6 @@ class Prefs(context: Context) {
         const val KEY_CUSTOM_SIZES = "custom_sizes"
         const val KEY_FEED = "feed_dots"
         const val KEY_FEED_MODE = "feed_mode"
+        const val KEY_ALIGNMENT = "head_alignment"
     }
 }

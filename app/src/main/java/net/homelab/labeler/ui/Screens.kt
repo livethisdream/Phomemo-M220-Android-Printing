@@ -703,6 +703,32 @@ fun QualityScreen(vm: LabelerViewModel, snackbar: SnackbarHostState, onBack: () 
                 )
             }
 
+            SectionCard("Roll position under the head") {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    val options = listOf(
+                        PhomemoM220.Alignment.LEFT to "Left",
+                        PhomemoM220.Alignment.CENTER to "Center",
+                        PhomemoM220.Alignment.RIGHT to "Right"
+                    )
+                    options.forEachIndexed { index, (value, text) ->
+                        SegmentedButton(
+                            selected = vm.alignment == value,
+                            onClick = { vm.updateAlignment(value) },
+                            shape = SegmentedButtonDefaults.itemShape(index, options.size)
+                        ) { Text(text, maxLines = 1) }
+                    }
+                }
+                Text(
+                    "Which side of the print head your labels feed along. The M220 " +
+                        "uses a right-aligned roll. If prints come out shifted with one " +
+                        "edge running off the label, this is the setting - the preview " +
+                        "cannot show it, because the preview is the label and the error " +
+                        "is in where the label sits.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             SectionCard("Print head width") {
                 var head by remember { mutableStateOf(vm.headWidthMm.toString()) }
                 OutlinedTextField(
