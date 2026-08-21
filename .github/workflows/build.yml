@@ -91,8 +91,13 @@ jobs:
             size=$(stat -c%s published.apk 2>/dev/null || echo 0)
             echo "attempt $attempt: HTTP $code, $size bytes"
             if [ "$code" = "200" ] && [ "$size" -gt 1000000 ]; then
-              unzip -p published.apk AndroidManifest.xml | strings | grep -q "0.1.${GITHUB_RUN_NUMBER}" \
-                && echo "Serving 0.1.${GITHUB_RUN_NUMBER}." && exit 0
+              # Strings in a binary AndroidManifest are UTF-16LE, so plain
+              # `strings` finds nothing - every ASCII run is one character long.
+              if unzip -p published.apk AndroidManifest.xml \
+                   | strings -el | grep -qx "0.1.${GITHUB_RUN_NUMBER}"; then
+                echo "Serving 0.1.${GITHUB_RUN_NUMBER}."
+                exit 0
+              fi
               echo "Downloaded, but it is not this build yet."
             fi
             sleep 10
