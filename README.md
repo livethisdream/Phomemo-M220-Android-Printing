@@ -56,6 +56,34 @@ Chrome hands over the page URL as `EXTRA_TEXT` and the page title as
 `EXTRA_SUBJECT`, so the item name lands on the label without any API call.
 The asset ID is pulled out of the URL path (`/a/000-001`).
 
+## Saved designs
+
+The editor's save button keeps a layout by name; the bookmark icon on the home
+screen lists them with a thumbnail of each. Opening one puts it back on the
+canvas ready to print.
+
+A design stores **the elements and the label size together**. Millimeter
+coordinates only mean something against stock of a known size - the same numbers
+that center a QR on 50x30 hang it off the edge of 30x20 - so the size travels
+with the design and is restored when it loads.
+
+Printer settings deliberately do *not* travel with it. Density, feed distance
+and protocol describe the machine and the roll in it, not the layout, and
+folding them in would let opening an old design silently undo printer tuning.
+
+Saving while a design is open offers **Update** and **Save copy** rather than
+guessing between them, because guessing is how a library fills up with
+near-duplicates.
+
+Storage is one JSON file per design under the app's private directory, plus a
+rendered thumbnail. Pictures are written separately, named by the hash of their
+own bytes, so the same image used in five designs is stored once; blobs no
+surviving design references are swept after each save and delete.
+
+Element ids are not written to disk. They come from a counter that restarts with
+the process, so a persisted id would collide with a live one as soon as a design
+was opened alongside anything else.
+
 ## Why this shape
 
 | Decision | Reason |

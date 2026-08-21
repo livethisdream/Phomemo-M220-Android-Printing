@@ -23,6 +23,7 @@ private object Route {
     const val LABEL_SIZE = "label"
     const val QUALITY = "quality"
     const val EDITOR = "editor"
+    const val DESIGNS = "designs"
 }
 
 /**
@@ -57,7 +58,20 @@ fun LabelerApp(
                 vm = vm,
                 snackbar = snackbar,
                 onSettings = { nav.navigate(Route.SETTINGS) },
-                onEdit = { nav.navigate(Route.EDITOR) }
+                onEdit = { nav.navigate(Route.EDITOR) },
+                onDesigns = { nav.navigate(Route.DESIGNS) }
+            )
+        }
+
+        composable(Route.DESIGNS) {
+            LaunchOnce { vm.refreshDesigns() }
+            DesignsScreen(
+                vm = vm,
+                snackbar = snackbar,
+                onBack = { nav.popBackStack() },
+                // Opening a design lands on the preview, not back in the
+                // library - the reason to open one is almost always to print it.
+                onOpened = { nav.popBackStack() }
             )
         }
 

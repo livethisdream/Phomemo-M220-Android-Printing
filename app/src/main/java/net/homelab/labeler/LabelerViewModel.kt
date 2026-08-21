@@ -23,6 +23,7 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = Prefs(app)
     private val transport = BleTransport(app)
+    private val store = DesignStore(app)
 
     /** Long-running printer work, surfaced so screens can show progress. */
     sealed interface Job {
@@ -60,6 +61,22 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     val selected: LabelDesign.Element? get() = doc.find(selectedId)
+
+    // --- Saved designs ---------------------------------------------------------
+
+    var designs by mutableStateOf<List<DesignStore.Saved>>(emptyList())
+        private set
+
+    /**
+     * Which saved design is on the canvas, if any. Kept so that saving again
+     * updates that design instead of leaving a second copy of it behind - the
+     * usual reason to press save twice is that the first version was wrong.
+     */
+    var designId by mutableStateOf<String?>(null)
+        private set
+
+    var designName by mutableStateOf<String?>(null)
+        private set
 
     // --- Settings, mirrored out of Prefs so Compose can observe them -----------
 
@@ -120,8 +137,83 @@ class LabelerViewModel(app: Application) : AndroidViewModel(app) {
         canUndo = false
         doc = value
         selectedId = null
+        // Whatever was on the canvas is gone, so the design it came from is no
+        // longer what is being edited. Keeping the link would make the next
+        // save overwrite a design the user never opened.
+        designId = null
+        designName = null
         rerender()
     }
+
+    // --- Saved designs ---------------------------------------------------------
+
+    fun refreshDesigns() = background("Loading designs") {
+        val list = store.list()
+        withContext(Dispatchers.Main) { designs = list }
+        ""
+    }
+
+    /**
+     * Writes the canvas as a named design. A null [id] saves a copy; passing
+     * [designId] overwrites the design already open.
+     */
+    fun saveDesign(name: String, id: String?) {
+        if (doc.elements.isEmpty()) return
+        val snapshot = doc
+        val w = labelWidthMm
+        val h = labelHeightMm
+        background("Saving design") {
+            val saved = store.save(id, name.trim(), snapshot, w, h)
+            val list = store.list()
+            withContext(Dispatchers.Main) {
+                designs = list
+                designId = saved.id
+                designName = saved.name
+            }
+            "Saved \"${saved.name}\""
+        }
+    }
+
+    /**
+     * Opens a design, including the stock it was laid out on. Restoring the
+     * elements without the label size would reproduce the coordinates but not
+     * the layout, since every position is relative to an edge.
+     */
+    fun loadDesign(id: String) = background("Opening design") {
+        val loaded = store.load(id) ?: throw IllegalStateException("That design is missing")
+        withContext(Dispatchers.Main) {
+            undoStack.clear()
+            canUndo = false
+            selectedId = null
+            labelWidthMm = loaded.widthMm
+            labelHeightMm = loaded.heightMm
+            prefs.labelWidthMm = loaded.widthMm
+            prefs.labelHeightMm = loaded.heightMm
+            doc = loaded.doc
+            designId = loaded.id
+            designName = loaded.name
+            rerender()
+        }
+        "Opened \"${loaded.name}\""
+    }
+
+    fun deleteDesign(id: String) = background("Deleting design") {
+        store.delete(id)
+        val list = store.list()
+        withContext(Dispatchers.Main) {
+            designs = list
+            // The canvas keeps its contents; only its link to a design that no
+            // longer exists is dropped, so a mistaken delete costs a name.
+            if (designId == id) {
+                designId = null
+                designName = null
+            }
+        }
+        "Deleted"
+    }
+
+    suspend fun thumbnail(id: String): Bitmap? =
+        withContext(Dispatchers.IO) { store.thumbnail(id) }
 
     // --- Editing --------------------------------------------------------------
 

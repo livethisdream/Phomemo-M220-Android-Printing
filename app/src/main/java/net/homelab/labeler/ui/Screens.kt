@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Print
@@ -118,7 +119,9 @@ fun JobReporter(vm: LabelerViewModel, snackbar: SnackbarHostState) {
     LaunchedEffect(job) {
         when (job) {
             is LabelerViewModel.Job.Done -> {
-                snackbar.showSnackbar(job.message)
+                // A blank message is a job with nothing to report - refreshing
+                // a list, say. An empty snackbar would be worse than silence.
+                if (job.message.isNotBlank()) snackbar.showSnackbar(job.message)
                 vm.clearJob()
             }
 
@@ -172,12 +175,16 @@ fun HomeScreen(
     vm: LabelerViewModel,
     snackbar: SnackbarHostState,
     onSettings: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onDesigns: () -> Unit
 ) {
     LabelerScaffold(
         title = "Label Printer",
         snackbar = snackbar,
         actions = {
+            IconButton(onClick = onDesigns) {
+                Icon(Icons.Filled.Bookmarks, contentDescription = "Saved designs")
+            }
             IconButton(onClick = onSettings) {
                 Icon(Icons.Filled.Settings, contentDescription = "Settings")
             }
@@ -205,7 +212,11 @@ fun HomeScreen(
                     )
                 }
                 Text(
-                    "${vm.labelWidthMm} × ${vm.labelHeightMm} mm",
+                    // The design name earns its place here: it is the only
+                    // signal that a save landed on the design you had open
+                    // rather than quietly creating a second one.
+                    vm.designName?.let { "$it  ·  " }.orEmpty() +
+                        "${vm.labelWidthMm} × ${vm.labelHeightMm} mm",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,

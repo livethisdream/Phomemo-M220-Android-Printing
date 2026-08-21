@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -71,11 +72,21 @@ fun EditorScreen(
     onBack: () -> Unit,
     onPickImage: () -> Unit
 ) {
+    var naming by remember { mutableStateOf(false) }
+
     LabelerScaffold(
         title = "Edit label",
         onBack = onBack,
         snackbar = snackbar,
         actions = {
+            IconButton(
+                onClick = { naming = true },
+                // Naming an empty canvas would save a design that renders as a
+                // blank label, which is indistinguishable from a broken one.
+                enabled = vm.doc.elements.isNotEmpty()
+            ) {
+                Icon(Icons.Filled.Save, contentDescription = "Save design")
+            }
             IconButton(onClick = { vm.toggleSnap() }) {
                 Icon(
                     Icons.Filled.GridOn,
@@ -104,6 +115,18 @@ fun EditorScreen(
             AddRow(vm, onPickImage)
             Properties(vm)
         }
+    }
+
+    if (naming) {
+        SaveDesignDialog(
+            initialName = vm.designName ?: "",
+            isExisting = vm.designId != null,
+            onDismiss = { naming = false },
+            onSave = { name, overwrite ->
+                vm.saveDesign(name, if (overwrite) vm.designId else null)
+                naming = false
+            }
+        )
     }
 }
 
