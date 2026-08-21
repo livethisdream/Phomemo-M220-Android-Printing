@@ -43,18 +43,59 @@ jobs:
       # on a phone a four-step chore. A release asset is a plain file on a
       # public repo: one tap, no account, no unzipping. The tag is reused so the
       # download URL never changes and can be bookmarked or given to Obtainium.
+      #
+      # The release is updated in place rather than deleted and recreated. The
+      # delete-and-recreate version produced a draft release once - `gh` printed
+      # the release URL and exited zero, the build went green, and the download
+      # URL served a 404 - and it left the link dead for the length of every
+      # build besides. Updating in place has no such window and no tag churn,
+      # which also matters to anything watching the tag for updates.
       - name: Publish rolling dev build
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+          ASSET: homebox-labeler.apk
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk homebox-labeler.apk
-          gh release delete dev --yes --cleanup-tag || true
-          gh release create dev homebox-labeler.apk \
-            --title "Latest development build" \
-            --prerelease \
-            --notes "Version 0.1.${GITHUB_RUN_NUMBER}, built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:7}\`.
+          set -euo pipefail
+          cp app/build/outputs/apk/debug/app-debug.apk "$ASSET"
 
-          Install directly: [homebox-labeler.apk](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev/homebox-labeler.apk)
+          cat > notes.md <<EOF
+          Version 0.1.${GITHUB_RUN_NUMBER}, built from \`${GITHUB_REF_NAME}\` at \`${GITHUB_SHA:0:7}\`.
 
-          This tag is replaced by every build, so that link always serves the newest one."
+          Install directly: [${ASSET}](https://github.com/${GITHUB_REPOSITORY}/releases/download/dev/${ASSET})
+
+          This release is replaced by every build, so that link always serves the newest one.
+          EOF
+
+          if gh release view dev >/dev/null 2>&1; then
+            gh release upload dev "$ASSET" --clobber
+            gh release edit dev --draft=false --prerelease \
+              --title "Latest development build" --notes-file notes.md
+          else
+            gh release create dev "$ASSET" \
+              --title "Latest development build" --prerelease --notes-file notes.md
+          fi
+
+      # A green build that publishes nothing installable is a broken build, and
+      # `gh` exiting zero is not evidence that the link works. This checks the
+      # public URL the README hands out, unauthenticated, exactly as a phone
+      # would - which is the only assertion that would have caught the draft.
+      - name: Verify the download link works
+        if: github.event_name == 'push'
+        env:
+          URL: https://github.com/${{ github.repository }}/releases/download/dev/homebox-labeler.apk
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -sSL -o published.apk -w '%{http_code}' "$URL" || echo 000)
+            size=$(stat -c%s published.apk 2>/dev/null || echo 0)
+            echo "attempt $attempt: HTTP $code, $size bytes"
+            if [ "$code" = "200" ] && [ "$size" -gt 1000000 ]; then
+              unzip -p published.apk AndroidManifest.xml | strings | grep -q "0.1.${GITHUB_RUN_NUMBER}" \
+                && echo "Serving 0.1.${GITHUB_RUN_NUMBER}." && exit 0
+              echo "Downloaded, but it is not this build yet."
+            fi
+            sleep 10
+          done
+          echo "::error::The published APK is not downloadable from $URL"
+          exit 1
